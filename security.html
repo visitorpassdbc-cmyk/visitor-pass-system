@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security Gate — VisitorPass System</title>
+  <meta name="description" content="Scan and verify visitor passes at security entrance" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    .security-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .security-layout { grid-template-columns: 1fr; }
+    }
+    .scanner-window {
+      background: #111126;
+      border: 2px dashed var(--glass-border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 320px;
+      transition: var(--transition);
+    }
+    .scanner-window:hover {
+      border-color: var(--accent-primary);
+    }
+    .scanner-laser {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent-light), transparent);
+      box-shadow: 0 0 12px var(--accent-primary);
+      top: 10%;
+      animation: scan-line 3s linear infinite;
+    }
+    @keyframes scan-line {
+      0% { top: 10%; }
+      50% { top: 90%; }
+      100% { top: 10%; }
+    }
+    .camera-placeholder {
+      font-size: 54px;
+      margin-bottom: 16px;
+    }
+    .log-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--glass-border);
+      font-size: 13px;
+    }
+    .log-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <div class="app-wrapper">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="main-content">
+      <div id="page-content"></div>
+    </main>
+  </div>
+  <!-- Modal: Manual Input -->
+  <div class="modal-overlay" id="manual-modal">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h2 class="modal-title">⌨️ Enter Pass ID manually</h2>
+        <button class="modal-close" onclick="closeModal('manual-modal')">✕</button>
+      </div>
+      <form onsubmit="handleManualSearch(event)">
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">Pass ID (e.g. VIS-2026-0001)</label>
+          <input type="text" class="form-control" id="manual-pass-id" placeholder="Enter full Pass ID" required />
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end">
+          <button type="button" class="btn btn-outline" onclick="closeModal('manual-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Verify Pass</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    let currentUser = VPS.requireAuth(['security']);
+    let currentFilter = 'scan'; // scan or log
+    let searchQuery = '';
+    VPS.renderSidebar('dashboard');
+    
+    // Automatically verify pass if loaded with scan query parameter (e.g. security.html?scan=VIS-XXX)
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const scanId = urlParams.get('scan');
+      if (scanId) {
+        verifyPass(scanId.toUpperCase());
+      }
+    });
+
+    renderPage();
+    function renderPage() {
+      if (currentFilter === 'scan') {
+        renderScanDashboard();
+      } else {
+        renderEntryLogs();
+      }
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      const activeNavId = currentFilter === 'scan' ? 'nav-scan' : 'nav-log';
+      const activeNav = document.getElementById(activeNavId);
+      if (activeNav) activeNav.classList.add('active');
+    }
+    function renderScanDashboard() {
+      const expected = VPS.getAll().filter(r => r.status === VPS.STATUS.APPROVED && r.inTime === null);
+      const inside = VPS.getAll().filter(r => r.inTime !== null && r.outTime === null);
+      
+      document.getElementById('page-content').innerHTML = `
+        <div class="page-header fade-in">
+          <h1>Security Gate Control</h1>
+          <p>Entrance Monitoring Desk & Verification</p>
+        </div>
+        <div class="security-layout fade-in fade-in-delay-1">
+          <!-- Verification Scanner View -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📷 Entry Scanner Gate</span>
+              <button class="btn btn-outline btn-sm" onclick="openModal('manual-modal')">⌨️ Manual Key-In</button>
+            </div>
+            
+            <div class="scanner-window" id="scanner-area">
+              <div id="reader" style="width: 100%; max-width: 320px; border-radius: var(--radius-md); overflow: hidden; display: none; margin-bottom: 16px;"></div>
+              
+              <div id="scanner-placeholder-content" style="display:flex; flex-direction:column; align-items:center; width:100%">
+                <div class="scanner-laser"></div>
+                <div class="camera-placeholder">🔲</div>
+                <h3>Scan Visitor QR Code</h3>
+                <p style="color:var(--text-muted);font-size:13px;margin:8px 0 16px;max-width:280px;text-align:center">
+                  Position the visitor's digital or printed QR Pass in front of the camera, or choose manual option.
+                </p>
+                
+                <div class="form-group" style="width:100%;max-width:320px;text-align:left">
+                  <label class="form-label" style="text-align:center;margin-bottom:8px">🧪 Simulator (Paste QR String or JSON)</label>
+                  <input type="text" class="form-control" id="qr-simulator" 
+                    placeholder="Paste QR JSON string or Pass ID to scan..."
+                    onpaste="simulatePasteScan(event)" onkeydown="if(event.key==='Enter') simulateEnterScan()" />
+                  <button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px" onclick="simulateEnterScan()">Verify Scanner Input</button>
+                </div>
+              </div>
+              
+              <button class="btn btn-success btn-sm" id="btn-toggle-camera" onclick="toggleCameraScanner()" style="width:100%;max-width:320px;margin-top:16px">📷 Start Camera Scanner</button>
+            </div>
+          </div>
+          <!-- Result Indicator Section -->
+          <div class="card" id="verification-result">
+            <div class="empty-state" style="padding:40px 10px">
+              <div class="empty-icon" style="font-size:64px">🎫</div>
+              <h3>Awaiting Pass Verification</h3>
+              <p>Scan a QR code, click an expected visitor below, or type details manually to check approval status.</p>
+            </div>
+          </div>
+        </div>
+        <!-- Live Inside Building Tracker -->
+        <div class="card fade-in fade-in-delay-2" style="margin-top:24px">
+          <div class="card-header">
+            <span class="card-title">🟢 Visitors Currently Inside Building</span>
+            <span class="badge badge-approved" style="background:var(--success-bg);color:var(--success)">${inside.length} Inside</span>
+          </div>
+          <div class="table-wrapper">
+            ${inside.length === 0
+              ? `<div class="empty-state" style="padding:24px"><div class="empty-icon">🏢</div><h3>No visitors currently inside building</h3><p>Visitors who check-in will appear here. Security can check them out from here.</p></div>`
+              : `<table>
+                  <thead>
+                    <tr>
+                      <th>Pass ID</th>
+                      <th>Visitor Name</th>
+                      <th>NIC</th>
+                      <th>Host / Department</th>
+                      <th>Check-In Time</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${inside.map(r => `
+                      <tr style="cursor:pointer" onclick="verifyPass('${r.id}'); window.scrollTo({top: 0, behavior: 'smooth'});">
+                        <td><strong>${r.id}</strong></td>
+                        <td>
+                          <strong>${r.visitorName}</strong>
+                          ${r.groupMembers && r.groupMembers.length > 0 ? `<span class="badge" style="background:rgba(139,92,246,0.15);color:var(--accent-light);font-size:10px;padding:2px 6px;margin-left:6px;border:1px solid rgba(139,92,246,0.3)">+${r.groupMembers.length} group</span>` : ''}
+                        </td>
+                        <td>${r.visitorNIC}</td>
+                        <td>${r.hostName} (${r.department})</td>
+                        <td>${VPS.formatDateTime(r.inTime)}</td>
+                        <td><button class="btn btn-danger btn-sm" onclick="checkoutVisitor('${r.id}'); event.stopPropagation();">Check-Out</button></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+        <!-- Expected Today Section -->
+        <div class="card fade-in fade-in-delay-3" style="margin-top:24px">
+          <div class="card-header">
+            <span class="card-title">📅 Approved Invitations (Expected Visitors)</span>
+            <span class="badge badge-approved">${expected.length} Expected</span>
+          </div>
+          <div class="table-wrapper">
+            ${expected.length === 0
+              ? `<div class="empty-state" style="padding:24px"><div class="empty-icon">✓</div><h3>No expected visitors</h3><p>All approved visitors have cleared the entrance or no passes are currently active.</p></div>`
+              : `<table>
+                  <thead>
+                    <tr>
+                      <th>Pass ID</th>
+                      <th>Visitor Name</th>
+                      <th>NIC</th>
+                      <th>Department</th>
+                      <th>Host Officer</th>
+                      <th>Visit Time</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${expected.map(r => `
+                      <tr style="cursor:pointer" onclick="verifyPass('${r.id}'); window.scrollTo({top: 0, behavior: 'smooth'});">
+                        <td><strong>${r.id}</strong></td>
+                        <td>
+                          <strong>${r.visitorName}</strong>
+                          ${r.groupMembers && r.groupMembers.length > 0 ? `<span class="badge" style="background:rgba(139,92,246,0.15);color:var(--accent-light);font-size:10px;padding:2px 6px;margin-left:6px;border:1px solid rgba(139,92,246,0.3)">+${r.groupMembers.length} group</span>` : ''}
+                        </td>
+                        <td>${r.visitorNIC}</td>
+                        <td>${r.department}</td>
+                        <td>${r.hostName}</td>
+                        <td>${r.visitDate} (${r.visitTime})</td>
+                        <td><button class="btn btn-primary btn-sm">Verify Pass</button></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+      `;
+    }
+    function renderEntryLogs() {
+      const records = VPS.getAll().filter(r => r.inTime !== null);
+      document.getElementById('page-content').innerHTML = `
+        <div class="page-header fade-in">
+          <h1>Entrance & Exit Logs</h1>
+          <p>Logs of verified passes processed at this gate</p>
+        </div>
+        <div class="card fade-in fade-in-delay-1">
+          <div class="card-header">
+            <span class="card-title">📋 Entrance & Exit History Logs</span>
+          </div>
+          <div class="table-wrapper">
+            ${records.length === 0
+              ? `<div class="empty-state"><div class="empty-icon">📂</div><h3>No scan entries recorded</h3><p>Visitor entries scanned at the gate will show up here.</p></div>`
+              : `<table>
+                  <thead>
+                    <tr>
+                      <th>Pass ID</th>
+                      <th>Visitor Name</th>
+                      <th>NIC</th>
+                      <th>Host / Dept</th>
+                      <th>Check-In Time (In)</th>
+                      <th>Check-Out Time (Out)</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${records.map(r => `
+                      <tr>
+                        <td>${r.id}</td>
+                        <td>
+                          <strong>${r.visitorName}</strong>
+                          ${r.groupMembers && r.groupMembers.length > 0 ? `<span class="badge" style="background:rgba(139,92,246,0.15);color:var(--accent-light);font-size:10px;padding:2px 6px;margin-left:6px;border:1px solid rgba(139,92,246,0.3)">+${r.groupMembers.length} group</span>` : ''}
+                        </td>
+                        <td>${r.visitorNIC}</td>
+                        <td>${r.hostName} (${r.department})</td>
+                        <td>${VPS.formatDateTime(r.inTime)}</td>
+                        <td>${VPS.formatDateTime(r.outTime)}</td>
+                        <td>
+                          ${r.outTime 
+                            ? `<span class="badge badge-rejected" style="background:rgba(239, 68, 68, 0.1);color:var(--danger)">Checked Out</span>` 
+                            : `<span class="badge badge-approved">Inside</span>`
+                          }
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+      `;
+    }
+    function handleManualSearch(event) {
+      event.preventDefault();
+      const passId = document.getElementById('manual-pass-id').value.trim().toUpperCase();
+      closeModal('manual-modal');
+      verifyPass(passId);
+    }
+    function simulatePasteScan(e) {
+      setTimeout(() => {
+        const val = document.getElementById('qr-simulator').value;
+        verifyPass(val);
+      }, 50);
+    }
+    function simulateEnterScan() {
+      const val = document.getElementById('qr-simulator').value.trim();
+      verifyPass(val);
+    }
+    function verifyPass(inputStr) {
+      if (!inputStr) return;
+      let record = null;
+      // Extract pass ID if input is a URL
+      if (inputStr.includes('?scan=')) {
+        try {
+          const urlParams = new URLSearchParams(inputStr.substring(inputStr.indexOf('?')));
+          const scanId = urlParams.get('scan');
+          if (scanId) {
+            inputStr = scanId;
+          }
+        } catch(e) {
+          console.error("Failed to parse scanned URL", e);
+        }
+      }
+      // Check if scanner input is a JSON string (QR pass data payload)
+      if (inputStr.startsWith('{') && inputStr.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(inputStr);
+          if (parsed && parsed.id) {
+            record = VPS.getById(parsed.id);
+          }
+        } catch(e) {
+          console.error("QR Code parsing failed", e);
+        }
+      }
+      // If not parsed as JSON, query as direct pass ID
+      if (!record) {
+        record = VPS.getById(inputStr.toUpperCase());
+      }
+      const resDiv = document.getElementById('verification-result');
+      if (!resDiv) return;
+      if (!record) {
+        resDiv.innerHTML = `
+          <div class="gate-status denied">
+            <div class="gate-icon">❌</div>
+            <h2>ACCESS DENIED</h2>
+            <p>Invalid QR Code or ID. Pass does not exist in the database.</p>
+          </div>
+          <div style="text-align:center;margin-top:16px">
+            <button class="btn btn-outline" onclick="resetGateScanner()">Clear Result</button>
+          </div>
+        `;
+        VPS.showNotification('Pass Verification Failed! Record not found.', 'error');
+        return;
+      }
+      // Record exists, display details
+      const isApproved = record.status === VPS.STATUS.APPROVED;
+      resDiv.innerHTML = `
+        <div class="gate-status ${isApproved ? 'allowed' : 'denied'}">
+          <div class="gate-icon">${isApproved ? '🟢' : '🔴'}</div>
+          <h2>${isApproved ? 'ENTRY APPROVED' : 'ENTRY DENIED'}</h2>
+          <p>${isApproved ? 'Authorized by Administration' : 'Pass Status: ' + record.status.toUpperCase()}</p>
+        </div>
+        <div class="card" style="margin-top:16px;background:rgba(255,255,255,0.02)">
+          <div class="detail-row"><span class="detail-label">Pass ID</span><span class="detail-value">${record.id}</span></div>
+          <div class="detail-row"><span class="detail-label">Visitor Name</span><span class="detail-value">${record.visitorName}</span></div>
+          <div class="detail-row"><span class="detail-label">NIC / Passport</span><span class="detail-value">${record.visitorNIC}</span></div>
+          <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value">${record.visitorPhone}</span></div>
+          <div class="detail-row"><span class="detail-label">Visit Department</span><span class="detail-value">${record.department}</span></div>
+          <div class="detail-row"><span class="detail-label">Host Officer</span><span class="detail-value">${record.hostName}</span></div>
+          <div class="detail-row"><span class="detail-label">Purpose</span><span class="detail-value">${record.purpose}</span></div>
+          <div class="detail-row"><span class="detail-label">Date & Time</span><span class="detail-value">${record.visitDate} @ ${record.visitTime}</span></div>
+          <div class="detail-row"><span class="detail-label">Submitted By</span><span class="detail-value">${record.submittedByName || 'Requester'}</span></div>
+          ${record.inTime ? `<div class="detail-row" style="color:var(--success)"><span class="detail-label">Check-In Time</span><span class="detail-value">${VPS.formatDateTime(record.inTime)}</span></div>` : ''}
+          ${record.outTime ? `<div class="detail-row" style="color:var(--danger)"><span class="detail-label">Check-Out Time</span><span class="detail-value">${VPS.formatDateTime(record.outTime)}</span></div>` : ''}
+          ${record.groupMembers && record.groupMembers.length > 0 ? `
+            <div style="margin-top:12px; border-top:1px dashed var(--glass-border); padding-top:12px">
+              <div style="font-weight:700; color:var(--warning); font-size:13px; margin-bottom:8px">👥 Group Members (${record.groupMembers.length}):</div>
+              <div style="display:flex; flex-direction:column; gap:6px">
+                ${record.groupMembers.map((m, idx) => `
+                  <div style="background:rgba(139,92,246,0.06); padding:8px 12px; border-radius:6px; border:1px solid rgba(139,92,246,0.15); font-size:12px">
+                    <strong style="color:var(--text-primary)">${idx+1}. ${m.name}</strong>
+                    ${m.nic ? `<span style="color:var(--text-muted); margin-left:8px">NIC: ${m.nic}</span>` : ''}
+                    ${m.phone ? `<span style="color:var(--text-muted); margin-left:8px">📞 ${m.phone}</span>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+        <div style="display:flex;gap:12px;margin-top:20px;justify-content:center">
+          ${isApproved && !record.inTime
+            ? `<button class="btn btn-success" onclick="checkinVisitor('${record.id}')">🟢 Confirm Entry (Check-In)</button>`
+            : isApproved && record.inTime && !record.outTime
+            ? `<button class="btn btn-danger" onclick="checkoutVisitor('${record.id}')">🔴 Confirm Exit (Check-Out)</button>`
+            : `<button class="btn btn-outline" onclick="resetGateScanner()">Close</button>`
+          }
+        </div>
+      `;
+    }
+    function checkinVisitor(id) {
+      VPS.recordCheckIn(id);
+      VPS.showNotification('Visitor check-in entry logged.', 'success');
+      resetGateScanner();
+    }
+    function checkoutVisitor(id) {
+      VPS.recordCheckOut(id);
+      VPS.showNotification('Visitor check-out exit logged.', 'warning');
+      resetGateScanner();
+    }
+    function resetGateScanner() {
+      stopCameraScanner();
+      renderPage();
+    }
+    function changeFilter(filterName) {
+      stopCameraScanner();
+      currentFilter = filterName;
+      renderPage();
+    }
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    let html5QrCode = null;
+    function toggleCameraScanner() {
+      const readerDiv = document.getElementById('reader');
+      const placeholder = document.getElementById('scanner-placeholder-content');
+      const btn = document.getElementById('btn-toggle-camera');
+      
+      if (!html5QrCode) {
+        // Start scanner
+        if (readerDiv) readerDiv.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+        if (btn) {
+          btn.textContent = '❌ Stop Camera Scanner';
+          btn.className = 'btn btn-danger btn-sm';
+        }
+        
+        html5QrCode = new Html5Qrcode("reader");
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        
+        html5QrCode.start(
+          { facingMode: "environment" }, 
+          config, 
+          (decodedText) => {
+            verifyPass(decodedText);
+            stopCameraScanner();
+          },
+          (errorMessage) => {
+            // Quietly ignore scan errors
+          }
+        ).catch(err => {
+          console.error("Camera access failed:", err);
+          VPS.showNotification("Unable to access camera. Please check permissions.", "error");
+          stopCameraScanner();
+        });
+      } else {
+        stopCameraScanner();
+      }
+    }
+    
+    function stopCameraScanner() {
+      const readerDiv = document.getElementById('reader');
+      const placeholder = document.getElementById('scanner-placeholder-content');
+      const btn = document.getElementById('btn-toggle-camera');
+      
+      if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+          html5QrCode = null;
+          if (readerDiv) readerDiv.style.display = 'none';
+          if (placeholder) placeholder.style.display = 'flex';
+          if (btn) {
+            btn.textContent = '📷 Start Camera Scanner';
+            btn.className = 'btn btn-success btn-sm';
+          }
+        }).catch(err => {
+          console.error("Failed to stop scanner", err);
+          html5QrCode = null;
+          // Fallback cleanup
+          if (readerDiv) readerDiv.style.display = 'none';
+          if (placeholder) placeholder.style.display = 'flex';
+          if (btn) {
+            btn.textContent = '📷 Start Camera Scanner';
+            btn.className = 'btn btn-success btn-sm';
+          }
+        });
+      }
+    }
+
+    // Intercept SPA navigation links
+    document.addEventListener('click', function(e) {
+      const navItem = e.target.closest('.nav-item');
+      if (navItem && navItem.getAttribute('href').startsWith('#')) {
+        e.preventDefault();
+        const tab = navItem.getAttribute('href').slice(1);
+        if (tab === 'scan') changeFilter('scan');
+        if (tab === 'log') changeFilter('log');
+      }
+    });
+    // Real-time data sync listener
+    window.addEventListener('vps-data-updated', () => {
+      console.log('Real-time database sync: refreshing page content');
+      renderPage();
+    });
+  </script>
+</body>
+</html>

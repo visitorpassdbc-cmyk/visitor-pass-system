@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reports & Export — VisitorPass System</title>
+  <meta name="description" content="Search, filter, and export visitor records to Excel" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-wrapper">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="main-content">
+      <div class="page-header fade-in">
+        <h1>Reports & Data Export</h1>
+        <p>Search, filter, and export visitor logs to Microsoft Excel spreadsheets</p>
+      </div>
+      <!-- Filter Controls Card -->
+      <div class="card fade-in fade-in-delay-1" style="margin-bottom:24px">
+        <div class="card-header">
+          <span class="card-title">🔍 Advanced Search & Filter</span>
+        </div>
+        <form id="filter-form" onsubmit="applyFilters(event)">
+          <div class="form-grid cols-3" style="margin-bottom:16px">
+            <div class="form-group">
+              <label class="form-label">Search Keywords</label>
+              <input type="text" class="form-control" id="f-search" placeholder="Visitor, Host, NIC, Pass ID..." />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Department</label>
+              <select class="form-control" id="f-dept">
+                <option value="">All Departments</option>
+                <option>Finance</option>
+                <option>HR</option>
+                <option>IT</option>
+                <option>Operations</option>
+                <option>Marketing</option>
+                <option>Legal</option>
+                <option>Administration</option>
+                <option>Engineering</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select class="form-control" id="f-status">
+                <option value="">All Statuses</option>
+                <option value="pending_hod">Pending HOD Approval</option>
+                <option value="pending_admin">Pending Final Approval</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date From</label>
+              <input type="date" class="form-control" id="f-date-from" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date To</label>
+              <input type="date" class="form-control" id="f-date-to" />
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline" onclick="resetFilters()">Reset Filters</button>
+            <button type="submit" class="btn btn-primary">Apply Filters</button>
+          </div>
+        </form>
+      </div>
+      <!-- Results Card -->
+      <div class="card fade-in fade-in-delay-2">
+        <div class="card-header" style="flex-wrap:wrap;gap:12px">
+          <span class="card-title" id="results-count">📋 Results</span>
+          <button class="btn btn-success btn-sm" onclick="exportData()">📥 Export Selected to Excel</button>
+        </div>
+        <div class="table-wrapper">
+          <table id="reports-table">
+            <thead>
+              <tr>
+                <th>Pass ID</th>
+                <th>Visitor</th>
+                <th>NIC</th>
+                <th>Department</th>
+                <th>Host Officer</th>
+                <th>Visit Schedule</th>
+                <th>Check-In (In)</th>
+                <th>Check-Out (Out)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="reports-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    let currentUser = VPS.requireAuth(['division', 'hod', 'admin', 'itadmin']);
+    let filteredRecords = [];
+    // Render active sidebar view
+    VPS.renderSidebar('reports');
+    // Initial load
+    fetchRecords();
+    function fetchRecords() {
+      const search = document.getElementById('f-search').value.trim();
+      const department = document.getElementById('f-dept').value;
+      const status = document.getElementById('f-status').value;
+      const dateFrom = document.getElementById('f-date-from').value;
+      const dateTo = document.getElementById('f-date-to').value;
+      // Filter and query records using app core
+      filteredRecords = VPS.filter({
+        search,
+        department,
+        status,
+        dateFrom,
+        dateTo
+      });
+      // Update counters
+      document.getElementById('results-count').textContent = `📋 Found ${filteredRecords.length} visitor record(s)`;
+      const tbody = document.getElementById('reports-tbody');
+      if (filteredRecords.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9">
+              <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <h3>No records match filter options</h3>
+                <p>Try modifying your search queries or selecting different filters.</p>
+              </div>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+      tbody.innerHTML = filteredRecords.map(r => `
+        <tr>
+          <td><strong>${r.id}</strong></td>
+          <td>
+            <strong>${r.visitorName}</strong>
+            <div style="font-size:11px;color:var(--text-muted)">Ph: ${r.visitorPhone}</div>
+          </td>
+          <td>${r.visitorNIC}</td>
+          <td>${r.department}</td>
+          <td>${r.hostName}</td>
+          <td>
+            <div>${r.visitDate}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${r.visitTime}</div>
+          </td>
+          <td>${VPS.formatDateTime(r.inTime)}</td>
+          <td>${VPS.formatDateTime(r.outTime)}</td>
+          <td>${VPS.statusBadge(r.status)}</td>
+        </tr>
+      `).join('');
+    }
+    function applyFilters(e) {
+      e.preventDefault();
+      fetchRecords();
+    }
+    function resetFilters() {
+      document.getElementById('filter-form').reset();
+      fetchRecords();
+    }
+    function exportData() {
+      if (filteredRecords.length === 0) {
+        VPS.showNotification('No records found to export!', 'warning');
+        return;
+      }
+      VPS.exportToExcel(filteredRecords, 'visitor_pass_report');
+    }
+    // Real-time data sync listener
+    window.addEventListener('vps-data-updated', () => {
+      console.log('Real-time database sync: refreshing page content');
+      fetchRecords();
+    });
+  </script>
+</body>
+</html>

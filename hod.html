@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HOD Dashboard — VisitorPass System</title>
+  <meta name="description" content="Review and approve visitor entry requests (1st Level)" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    .request-row-actions {
+      display: flex;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-wrapper">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="main-content">
+      <div id="page-content"></div>
+    </main>
+  </div>
+  <!-- Modal: View QR Pass -->
+  <div class="modal-overlay" id="qr-modal">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h2 class="modal-title">🎫 Visitor Pass</h2>
+        <button class="modal-close" onclick="closeModal('qr-modal')">✕</button>
+      </div>
+      <div class="qr-modal-content" style="text-align:center">
+        <div class="qr-pass-card" id="qr-pass-card" style="background: white; border-radius: 16px; padding: 24px; margin: 16px 0; color: #1a1a2e;">
+          <h3 style="font-size: 14px; font-weight: 700; color: #6d28d9; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px;">🏢 Official Visitor Pass</h3>
+          <div class="visitor-name-qr" id="qr-visitor-name" style="font-size: 20px; font-weight: 800; color: #1a1a2e; margin-bottom: 12px;">—</div>
+          <div id="qrcode-display" style="display: flex; justify-content: center; margin: 16px 0;"></div>
+          <div class="pass-details-grid" id="qr-pass-details" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; text-align: left; margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px;"></div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:8px 0 16px">
+          Official entry pass approved by Admin Director.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button class="btn btn-outline btn-sm" onclick="printPass()">🖨️ Print Pass</button>
+          <button class="btn btn-primary btn-sm" onclick="downloadPass()">⬇️ Download</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Modal: Approve Request -->
+  <div class="modal-overlay" id="approve-modal">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h2 class="modal-title">✅ Approve Request</h2>
+        <button class="modal-close" onclick="closeModal('approve-modal')">✕</button>
+      </div>
+      <form id="approve-form" onsubmit="handleApproveSubmit(event)">
+        <input type="hidden" id="approve-id" />
+        <div id="approve-details" style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;border-bottom:1px solid var(--glass-border);padding-bottom:16px;max-height:160px;overflow-y:auto"></div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">Approval Comments / Remarks</label>
+          <textarea class="form-control" id="approve-comment" rows="3" placeholder="Enter comments for Admin Director..."></textarea>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end">
+          <button type="button" class="btn btn-outline" onclick="closeModal('approve-modal')">Cancel</button>
+          <button type="submit" class="btn btn-success">Approve & Send to Director</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <!-- Modal: Reject Request -->
+  <div class="modal-overlay" id="reject-modal">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h2 class="modal-title">❌ Reject Request</h2>
+        <button class="modal-close" onclick="closeModal('reject-modal')">✕</button>
+      </div>
+      <form id="reject-form" onsubmit="handleRejectSubmit(event)">
+        <input type="hidden" id="reject-id" />
+        <div id="reject-details" style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;border-bottom:1px solid var(--glass-border);padding-bottom:16px;max-height:160px;overflow-y:auto"></div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">Reason for Rejection *</label>
+          <textarea class="form-control" id="reject-comment" rows="3" placeholder="Please specify why this request is rejected..." required></textarea>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end">
+          <button type="button" class="btn btn-outline" onclick="closeModal('reject-modal')">Cancel</button>
+          <button type="submit" class="btn btn-danger">Reject Request</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    let currentUser = VPS.requireAuth(['hod']);
+    let currentFilter = 'pending_hod';
+    let searchQuery = '';
+    let selectedDeptFilter = (currentUser.department && currentUser.department !== 'General') ? currentUser.department : 'All';
+    VPS.renderSidebar('dashboard');
+    renderPage();
+
+    // Pull any new passes from backend on load
+    VPS.syncWithBackend().then(() => {
+      renderPage();
+    });
+
+    function renderPage() {
+      // Re-render sidebar to update the pending count badge
+      VPS.renderSidebar(currentFilter === 'pending_hod' ? 'pending' : currentFilter === 'approved' ? 'approved' : currentFilter === 'rejected' ? 'rejected' : 'dashboard');
+      
+      let records = VPS.filter({ search: searchQuery });
+      if (selectedDeptFilter && selectedDeptFilter !== 'All') {
+        records = records.filter(r => (r.department || '').trim().toLowerCase() === selectedDeptFilter.trim().toLowerCase());
+      }
+      
+      // Filter list based on active view state
+      let filtered = [];
+      if (currentFilter === 'pending_hod') {
+        filtered = records.filter(r => r.status === VPS.STATUS.PENDING_HOD);
+      } else if (currentFilter === 'approved') {
+        // Show everything approved by HOD or Admin
+        filtered = records.filter(r => r.status === VPS.STATUS.PENDING_ADMIN || r.status === VPS.STATUS.APPROVED);
+      } else if (currentFilter === 'rejected') {
+        // Show things rejected (either at HOD or Admin level)
+        filtered = records.filter(r => r.status === VPS.STATUS.REJECTED);
+      } else {
+        filtered = records; // All
+      }
+      const total = records.length;
+      const pendingCount = records.filter(r => r.status === VPS.STATUS.PENDING_HOD).length;
+      const approvedCount = records.filter(r => r.status === VPS.STATUS.PENDING_ADMIN || r.status === VPS.STATUS.APPROVED).length;
+      const rejectedCount = records.filter(r => r.status === VPS.STATUS.REJECTED).length;
+      document.getElementById('page-content').innerHTML = `
+        <div class="page-header fade-in">
+          <h1>HOD Dashboard</h1>
+          <p>Welcome back, ${currentUser.name} · Head of Department (1st Level Approver)</p>
+        </div>
+        <div class="stats-grid fade-in fade-in-delay-1">
+          <div class="stat-card" style="cursor:pointer" onclick="changeFilter('pending_hod')">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-value">${pendingCount}</div>
+            <div class="stat-label">Pending Approval</div>
+          </div>
+          <div class="stat-card" style="cursor:pointer" onclick="changeFilter('approved')">
+            <div class="stat-icon">✅</div>
+            <div class="stat-value">${approvedCount}</div>
+            <div class="stat-label">HOD Approved / Pending Director</div>
+          </div>
+          <div class="stat-card" style="cursor:pointer" onclick="changeFilter('rejected')">
+            <div class="stat-icon">❌</div>
+            <div class="stat-value">${rejectedCount}</div>
+            <div class="stat-label">Rejected Requests</div>
+          </div>
+        </div>
+        <div class="card fade-in fade-in-delay-2">
+          <div class="card-header">
+            <span class="card-title">📋 ${getViewTitle()}</span>
+          </div>
+          <div class="filter-bar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <div class="search-input" style="flex:1;min-width:240px">
+              <input type="text" placeholder="Search by visitor name, NIC, host..." id="search-input"
+                oninput="searchQuery=this.value; renderPage()" value="${searchQuery}" />
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--text-muted);font-weight:600">Division:</label>
+              <select class="form-control" style="width:auto;min-width:180px" id="hod-dept-filter" onchange="selectedDeptFilter=this.value; renderPage()">
+                <option value="All" ${selectedDeptFilter === 'All' ? 'selected' : ''}>All Divisions (All)</option>
+                ${(VPS.DIVISIONS || []).map(d => `<option value="${d}" ${selectedDeptFilter === d ? 'selected' : ''}>${d}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            ${filtered.length === 0
+              ? `<div class="empty-state"><div class="empty-icon">📭</div><h3>No records found</h3><p>There are no visitor requests matching this category.</p></div>`
+              : `<table>
+                  <thead>
+                    <tr>
+                      <th>Pass ID</th>
+                      <th>Visitor Name</th>
+                      <th>NIC</th>
+                      <th>Department</th>
+                      <th>Host</th>
+                      <th>Date & Time</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${filtered.map(r => `
+                      <tr>
+                        <td>${r.id}</td>
+                        <td>
+                          <strong>${r.visitorName}</strong>
+                          ${r.groupMembers && r.groupMembers.length > 0 ? `<span class="badge" style="background:rgba(139,92,246,0.15);color:var(--accent-light);font-size:10px;padding:2px 6px;margin-left:6px;border:1px solid rgba(139,92,246,0.3)">+${r.groupMembers.length} group</span>` : ''}
+                          <div style="font-size:11px;color:var(--text-muted)">From: ${r.company || 'Individual'}</div>
+                        </td>
+                        <td>${r.visitorNIC}</td>
+                        <td>${r.department}</td>
+                        <td>${r.hostName}</td>
+                        <td>
+                          <div>${r.visitDate}</div>
+                          <div style="font-size:11px;color:var(--text-muted)">${r.visitTime}</div>
+                        </td>
+                        <td>${VPS.statusBadge(r.status)}</td>
+                        <td>
+                          ${r.status === VPS.STATUS.PENDING_HOD 
+                            ? `<div class="request-row-actions">
+                                 <button class="btn btn-success btn-sm" onclick="openApproveModal('${r.id}')">Approve</button>
+                                 <button class="btn btn-danger btn-sm" onclick="openRejectModal('${r.id}')">Reject</button>
+                                </div>`
+                            : r.status === VPS.STATUS.APPROVED
+                            ? `<div class="request-row-actions">
+                                 <button class="btn btn-success btn-sm" onclick="viewQR('${r.id}')">🎫 View QR Pass</button>
+                               </div>`
+                            : `<div style="font-size:11px;color:var(--text-muted)">
+                                 ${r.hodApproval ? `Action by ${r.hodApproval.byName}<br>${VPS.formatDate(r.hodApproval.at)}` : '—'}
+                               </div>`
+                          }
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+      `;
+      // Wire up sidebar active links
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      const activeNavId = currentFilter === 'pending_hod' ? 'nav-pending' : currentFilter === 'approved' ? 'nav-approved' : currentFilter === 'rejected' ? 'nav-rejected' : 'nav-dashboard';
+      const activeNav = document.getElementById(activeNavId);
+      if (activeNav) activeNav.classList.add('active');
+    }
+    function getViewTitle() {
+      if (currentFilter === 'pending_hod') return 'Pending HOD Approval';
+      if (currentFilter === 'approved') return 'Approved Requests';
+      if (currentFilter === 'rejected') return 'Rejected Requests';
+      return 'All Requests';
+    }
+    function changeFilter(filterName) {
+      currentFilter = filterName;
+      renderPage();
+    }
+    // Modal helpers
+    // Modal helpers
+    function makeRequestSummaryHTML(rec) {
+      return `
+        <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:6px; border:1px solid var(--glass-border); margin-bottom:12px">
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px">
+            <span style="font-weight:700; color:var(--text-primary)">${rec.visitorName}</span>
+            <span style="font-family:monospace; color:var(--accent-light); font-size:11px">${rec.id}</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px">
+            NIC: ${rec.visitorNIC} | Company: ${rec.company || 'Individual'} | Host: ${rec.hostName} | Submitted By: ${rec.submittedByName || 'Requester'}
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px">
+            <strong>Purpose:</strong> ${rec.purpose}
+          </div>
+          ${rec.groupMembers && rec.groupMembers.length > 0 ? `
+            <div style="margin-top:8px; border-top:1px dashed var(--glass-border); padding-top:8px">
+              <span style="font-weight:600; color:var(--warning)">👥 Group Members (${rec.groupMembers.length}):</span>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px; display:flex; flex-direction:column; gap:2px">
+                ${rec.groupMembers.map((m, idx) => `<div>${idx+1}. ${m.name} ${m.nic ? `(NIC: ${m.nic})` : ''}</div>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function openApproveModal(id) {
+      const rec = VPS.getById(id);
+      document.getElementById('approve-id').value = id;
+      document.getElementById('approve-comment').value = '';
+      document.getElementById('approve-details').innerHTML = rec ? makeRequestSummaryHTML(rec) : '';
+      openModal('approve-modal');
+    }
+    function handleApproveSubmit(e) {
+      e.preventDefault();
+      const id = document.getElementById('approve-id').value;
+      const comment = document.getElementById('approve-comment').value.trim();
+      VPS.hodApprove(id, comment, currentUser);
+      closeModal('approve-modal');
+      renderPage();
+      VPS.showNotification('Request approved and forwarded to Admin Director!', 'success');
+    }
+    function openRejectModal(id) {
+      const rec = VPS.getById(id);
+      document.getElementById('reject-id').value = id;
+      document.getElementById('reject-comment').value = '';
+      document.getElementById('reject-details').innerHTML = rec ? makeRequestSummaryHTML(rec) : '';
+      openModal('reject-modal');
+    }
+    function handleRejectSubmit(e) {
+      e.preventDefault();
+      const id = document.getElementById('reject-id').value;
+      const comment = document.getElementById('reject-comment').value.trim();
+      VPS.hodReject(id, comment, currentUser);
+      closeModal('reject-modal');
+      renderPage();
+      VPS.showNotification('Request has been rejected.', 'warning');
+    }
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    function viewQR(id) {
+      const rec = VPS.getById(id);
+      if (!rec || !rec.qrData) return;
+      document.getElementById('qr-visitor-name').textContent = rec.visitorName;
+      document.getElementById('qr-pass-details').innerHTML = `
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Pass ID</label><p style="font-size:12px;font-weight:600;margin:0">${rec.id}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">NIC</label><p style="font-size:12px;font-weight:600;margin:0">${rec.visitorNIC}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Purpose</label><p style="font-size:12px;font-weight:600;margin:0">${rec.purpose}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Host</label><p style="font-size:12px;font-weight:600;margin:0">${rec.hostName}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Department</label><p style="font-size:12px;font-weight:600;margin:0">${rec.department}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Visit Date</label><p style="font-size:12px;font-weight:600;margin:0">${rec.visitDate} ${rec.visitTime}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Submitted By</label><p style="font-size:12px;font-weight:600;margin:0">${rec.submittedByName || 'Requester'}</p></div>
+        <div class="pass-detail-item"><label style="font-size:9px;text-transform:uppercase;color:#94a3b8">Approved By</label><p style="font-size:12px;font-weight:600;margin:0">${rec.adminApproval?.byName || 'Director'}</p></div>
+        ${rec.groupMembers && rec.groupMembers.length > 0 ? `
+          <div class="pass-detail-item" style="grid-column: span 2; border-top: 1px dashed #e2e8f0; padding-top: 8px; margin-top: 8px; text-align: left">
+            <label style="font-size:9px; text-transform:uppercase; color:#6d28d9; font-weight:700">Group Members (${rec.groupMembers.length})</label>
+            <div style="font-size: 11px; margin-top: 4px; display:flex; flex-direction:column; gap:4px">
+              ${rec.groupMembers.map((m, idx) => `
+                <div style="color:#1e293b"><strong>${idx+1}. ${m.name}</strong> ${m.nic ? `(NIC: ${m.nic})` : ''}</div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      `;
+      openModal('qr-modal');
+      document.getElementById('qrcode-display').innerHTML = '';
+      const verificationUrl = `${window.location.origin}${window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'))}/verify.html?scan=${rec.id}`;
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(document.getElementById('qrcode-display'), {
+          text: verificationUrl,
+          width: 180,
+          height: 180,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M,
+        });
+      }
+    }
+    function printPass() {
+      const el = document.getElementById('qr-pass-card');
+      const w = window.open('', '_blank');
+      w.document.write(`<html><head><title>Visitor Pass</title><style>
+        body{font-family:Inter,sans-serif;margin:20px;color:#1a1a2e}
+        h3{color:#6d28d9;text-transform:uppercase;letter-spacing:1px;font-size:12px}
+        .vn{font-size:22px;font-weight:800;margin:8px 0}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px}
+        label{font-size:9px;text-transform:uppercase;color:#94a3b8;letter-spacing:0.5px}
+        p{font-size:12px;font-weight:600;color:#1e293b;margin:0}
+        #qrcode-display canvas { display: none !important; }
+        #qrcode-display img { display: block !important; margin: 12px auto; }
+      </style></head><body>${el.innerHTML}</body></html>`);
+      w.document.close();
+      setTimeout(() => { w.focus(); w.print(); }, 500);
+    }
+    function downloadPass() {
+      const passCard = document.getElementById('qr-pass-card');
+      const visitorName = document.getElementById('qr-visitor-name').textContent;
+      const qrDisplay = document.getElementById('qrcode-display');
+      const qrImg = qrDisplay.querySelector('img') || qrDisplay.querySelector('canvas');
+      if (!qrImg) { VPS.showNotification('QR code not ready yet.', 'warning'); return; }
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const scale = 2;
+      const width = 400;
+      const height = 580;
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      ctx.scale(scale, scale);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.roundRect(0, 0, width, height, 16); ctx.fill();
+
+      const grad = ctx.createLinearGradient(0, 0, width, 60);
+      grad.addColorStop(0, '#8b5cf6'); grad.addColorStop(1, '#6d28d9');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.roundRect(0, 0, width, 60, [16, 16, 0, 0]); ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏢  OFFICIAL VISITOR PASS', width / 2, 36);
+
+      ctx.fillStyle = '#1a1a2e';
+      ctx.font = 'bold 20px Inter, sans-serif';
+      ctx.fillText(visitorName, width / 2, 95);
+
+      const qrSize = 160, qrX = (width - qrSize) / 2, qrY = 115;
+      try {
+        if (qrImg.tagName === 'CANVAS') { ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize); }
+        else { const t = new Image(); t.crossOrigin = 'anonymous'; t.src = qrImg.src; ctx.drawImage(t, qrX, qrY, qrSize, qrSize); }
+      } catch(e) { ctx.strokeStyle = '#e2e8f0'; ctx.strokeRect(qrX, qrY, qrSize, qrSize); }
+
+      const detailsStartY = qrY + qrSize + 20;
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(24, detailsStartY); ctx.lineTo(width - 24, detailsStartY); ctx.stroke();
+
+      const detailItems = passCard.querySelectorAll('.pass-detail-item');
+      let dy = detailsStartY + 20;
+      const colWidth = (width - 48) / 2;
+      detailItems.forEach((item, idx) => {
+        const label = item.querySelector('label')?.textContent || '';
+        const value = item.querySelector('p')?.textContent || '';
+        const isFullWidth = item.style.gridColumn?.includes('span 2');
+        if (isFullWidth) {
+          ctx.fillStyle = '#6d28d9'; ctx.font = 'bold 9px Inter, sans-serif'; ctx.textAlign = 'left';
+          ctx.fillText(label.toUpperCase(), 24, dy); dy += 14;
+          ctx.fillStyle = '#1e293b'; ctx.font = '11px Inter, sans-serif';
+          value.split(/\d+\.\s/).filter(Boolean).forEach(line => { ctx.fillText(line.trim(), 32, dy); dy += 14; });
+          dy += 4;
+        } else {
+          const col = idx % 2, x = 24 + (col * colWidth);
+          if (col === 0 && idx > 0) dy += 4;
+          ctx.fillStyle = '#94a3b8'; ctx.font = '600 8px Inter, sans-serif'; ctx.textAlign = 'left';
+          ctx.fillText(label.toUpperCase(), x, dy);
+          ctx.fillStyle = '#1e293b'; ctx.font = '600 11px Inter, sans-serif';
+          ctx.fillText(value, x, dy + 13);
+          if (col === 1) dy += 30;
+        }
+      });
+
+      ctx.fillStyle = '#94a3b8'; ctx.font = '9px Inter, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('Generated by VisitorPass System • ' + new Date().toLocaleDateString(), width / 2, height - 16);
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(0, 0, width, height, 16); ctx.stroke();
+
+      const link = document.createElement('a');
+      link.download = `VisitorPass_${visitorName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      VPS.showNotification('✅ Visitor Pass downloaded as PNG!', 'success');
+    }
+    // Navigation events mapping (overriding standard sidebar anchors for SPA-like navigation)
+    document.addEventListener('click', function(e) {
+      const navItem = e.target.closest('.nav-item');
+      if (navItem && navItem.getAttribute('href').startsWith('#')) {
+        e.preventDefault();
+        const tab = navItem.getAttribute('href').slice(1);
+        if (tab === 'pending') changeFilter('pending_hod');
+        if (tab === 'approved') changeFilter('approved');
+        if (tab === 'rejected') changeFilter('rejected');
+      }
+    });
+    // Real-time data sync listener
+    window.addEventListener('vps-data-updated', () => {
+      console.log('Real-time database sync: refreshing page content');
+      renderPage();
+    });
+  </script>
+</body>
+</html>

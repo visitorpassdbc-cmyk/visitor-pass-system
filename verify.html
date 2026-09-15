@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pass Verification — VisitorPass System</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    body {
+      background: var(--bg-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+    .verify-card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      padding: 32px 24px;
+      box-shadow: var(--shadow-card);
+      text-align: center;
+      position: relative;
+    }
+    .status-icon-wrapper {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 36px;
+      position: relative;
+    }
+    .status-icon-wrapper.approved {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 2px solid var(--success);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+    .status-icon-wrapper.pending {
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 2px solid var(--warning);
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+    }
+    .status-icon-wrapper.rejected {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 2px solid var(--danger);
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 50px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    .status-badge.approved {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+    .status-badge.pending {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+    .status-badge.rejected {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+    .pass-details-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      text-align: left;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--glass-border);
+    }
+    .pass-details-table tr {
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .pass-details-table tr:last-child {
+      border-bottom: none;
+    }
+    .pass-details-table td {
+      padding: 12px 16px;
+      font-size: 13px;
+    }
+    .pass-details-table td.label {
+      color: var(--text-secondary);
+      font-weight: 500;
+      width: 35%;
+    }
+    .pass-details-table td.value {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .group-section {
+      margin-top: 16px;
+      text-align: left;
+      background: rgba(139, 92, 246, 0.05);
+      border: 1px solid rgba(139, 92, 246, 0.15);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+    .group-title {
+      font-weight: 700;
+      color: var(--accent-light);
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .group-member-item {
+      background: rgba(255, 255, 255, 0.02);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--glass-border);
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--text-primary);
+      display: flex;
+      justify-content: space-between;
+    }
+    .group-member-item:last-child {
+      margin-bottom: 0;
+    }
+    .loading-state {
+      padding: 40px 0;
+    }
+    .spinner {
+      border: 4px solid rgba(255,255,255,0.1);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border-left-color: var(--accent-primary);
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .footer-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 24px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="verify-card" id="verify-container">
+    <div class="loading-state" id="loading-el">
+      <div class="spinner"></div>
+      <h3 style="color:var(--text-primary)">Loading Visitor Pass...</h3>
+      <p style="color:var(--text-secondary);font-size:13px;margin-top:6px">Connecting to database and validating credentials</p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    // Automatically trigger checking once VPS data loads
+    window.addEventListener('vps-data-updated', () => {
+      console.log('VPS database loaded, running verification...');
+      runVerification();
+    });
+
+    // Fallback if data is already loaded or database sync doesn't trigger event
+    setTimeout(() => {
+      if (document.getElementById('loading-el')) {
+        runVerification();
+      }
+    }, 1500);
+
+    function runVerification() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const scanId = urlParams.get('scan');
+      
+      const container = document.getElementById('verify-container');
+      if (!scanId) {
+        renderError(container, "Missing Pass ID", "Please scan a valid QR code containing a Pass ID.");
+        return;
+      }
+      
+      // Fetch pass
+      const record = VPS.getById(scanId.toUpperCase());
+      if (!record) {
+        renderError(container, "Pass Not Found", `Pass ID "${scanId.toUpperCase()}" is not registered in the system.`);
+        return;
+      }
+      
+      renderPassDetails(container, record);
+    }
+
+    function renderError(container, title, message) {
+      container.innerHTML = `
+        <div class="status-icon-wrapper rejected">✕</div>
+        <div class="status-badge rejected">Verification Failed</div>
+        <h2 style="color:var(--text-primary);font-weight:800;margin-bottom:8px">${title}</h2>
+        <p style="color:var(--text-secondary);font-size:13px;line-height:1.5;margin-bottom:20px">${message}</p>
+        <div style="border-top:1px solid var(--glass-border);padding-top:20px">
+          <a href="index.html" class="btn btn-outline btn-sm" style="display:inline-block">Go to Login</a>
+        </div>
+      `;
+    }
+
+    function renderPassDetails(container, rec) {
+      const isApproved = rec.status === VPS.STATUS.APPROVED;
+      const isPending = rec.status === VPS.STATUS.PENDING_HOD || rec.status === VPS.STATUS.PENDING_ADMIN;
+      
+      let statusClass = 'rejected';
+      let statusLabel = 'Invalid Pass';
+      let statusIcon = '✕';
+      
+      if (isApproved) {
+        statusClass = 'approved';
+        statusLabel = 'Valid Pass';
+        statusIcon = '✓';
+      } else if (isPending) {
+        statusClass = 'pending';
+        statusLabel = 'Pending Approval';
+        statusIcon = '⏳';
+      } else if (rec.status === 'rejected') {
+        statusClass = 'rejected';
+        statusLabel = 'Rejected / Cancelled';
+        statusIcon = '✕';
+      }
+      
+      let groupSectionHTML = '';
+      if (rec.groupMembers && rec.groupMembers.length > 0) {
+        groupSectionHTML = `
+          <div class="group-section">
+            <div class="group-title">👥 Group Members (${rec.groupMembers.length}):</div>
+            <div style="display:flex; flex-direction:column; gap:4px">
+              ${rec.groupMembers.map((m, idx) => `
+                <div class="group-member-item">
+                  <strong>${idx+1}. ${m.name}</strong>
+                  ${m.nic ? `<span style="color:var(--text-secondary)">NIC: ${m.nic}</span>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="status-icon-wrapper ${statusClass}">${statusIcon}</div>
+        <div class="status-badge ${statusClass}">${statusLabel}</div>
+        
+        <h2 style="color:var(--text-primary);font-weight:800;margin-bottom:4px">${rec.visitorName}</h2>
+        <p style="color:var(--text-secondary);font-size:12px;margin-bottom:20px;letter-spacing:0.5px">PASS ID: ${rec.id}</p>
+        
+        <table class="pass-details-table">
+          <tr>
+            <td class="label">NIC/Passport</td>
+            <td class="value">${rec.visitorNIC}</td>
+          </tr>
+          <tr>
+            <td class="label">Phone</td>
+            <td class="value">${rec.visitorPhone}</td>
+          </tr>
+          <tr>
+            <td class="label">Department</td>
+            <td class="value">${rec.department}</td>
+          </tr>
+          <tr>
+            <td class="label">Host Officer</td>
+            <td class="value">${rec.hostName}</td>
+          </tr>
+          <tr>
+            <td class="label">Purpose</td>
+            <td class="value">${rec.purpose}</td>
+          </tr>
+          <tr>
+            <td class="label">Submitted By</td>
+            <td class="value">${rec.submittedByName || 'Requester'}</td>
+          </tr>
+          <tr>
+            <td class="label">Visit Time</td>
+            <td class="value">${rec.visitDate} @ ${rec.visitTime}</td>
+          </tr>
+          ${rec.inTime ? `
+            <tr style="color:var(--success)">
+              <td class="label" style="color:var(--success)">Check-In</td>
+              <td class="value">${VPS.formatDateTime(rec.inTime)}</td>
+            </tr>
+          ` : ''}
+          ${rec.outTime ? `
+            <tr style="color:var(--danger)">
+              <td class="label" style="color:var(--danger)">Check-Out</td>
+              <td class="value">${VPS.formatDateTime(rec.outTime)}</td>
+            </tr>
+          ` : ''}
+        </table>
+        
+        ${groupSectionHTML}
+        
+        <div class="footer-note">
+          Official Digital Visitor Pass.<br>
+          Generated by VisitorPass Management System.<br>
+          Verification Time: ${new Date().toLocaleString()}
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
