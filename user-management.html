@@ -438,9 +438,9 @@
             </select>
           </div>
           <div class="form-group full-width">
-            <label class="form-label">Division / Department</label>
-            <select class="form-control" id="u-dept">
-              <option value="All">All (Corporate Management / Director)</option>
+            <label class="form-label">Division / Department *</label>
+            <select class="form-control" id="u-dept" required>
+              <option value="" disabled selected>— Select Specific Division —</option>
               <option value="CPD(MTV)">CPD(MTV)</option>
               <option value="Digital">Digital</option>
               <option value="IT Division">IT Division</option>
@@ -466,7 +466,7 @@
               <option value="Subtitle division">Subtitle division</option>
               <option value="TX Room">TX Room</option>
               <option value="TV1">TV1</option>
-              <option value="General">General</option>
+              <option value="All">All (Admin Director / Executive Only)</option>
             </select>
           </div>
         </div>
@@ -604,6 +604,11 @@
       const password = document.getElementById('u-password').value;
       const role     = document.getElementById('u-role').value;
       const dept     = document.getElementById('u-dept').value;
+      
+      if (role === 'hod' && (!dept || dept === 'All' || dept === 'General')) {
+        VPS.showNotification('An HOD must be assigned to a specific Division (e.g. Sirasa FM, IT Division, Admin, etc.)!', 'error');
+        return;
+      }
       if (id) {
         // Edit
         const updates = { name, email, username, role, department: dept };

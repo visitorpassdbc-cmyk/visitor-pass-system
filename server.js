@@ -54,8 +54,8 @@ function requireRoles(allowedRoles) {
 app.post('/api/requests', (req, res) => {
   try {
     const { visitorData, requester } = req.body;
-    if (!visitorData || !visitorData.visitorName || !visitorData.visitorNIC || !visitorData.visitorPhone) {
-      return res.status(400).json({ error: 'Visitor name, NIC, and phone are required.' });
+    if (!visitorData || !visitorData.visitorName || !visitorData.visitorNIC) {
+      return res.status(400).json({ error: 'Visitor name and NIC are required.' });
     }
 
     const passId = dbLayer.generatePassId();
@@ -65,7 +65,7 @@ app.post('/api/requests', (req, res) => {
       id: passId,
       visitorName: visitorData.visitorName,
       visitorNIC: visitorData.visitorNIC,
-      visitorPhone: visitorData.visitorPhone,
+      visitorPhone: visitorData.visitorPhone || '—',
       company: visitorData.company || 'Individual',
       hostName: visitorData.hostName || '—',
       department: visitorData.department || requester?.department || 'General',

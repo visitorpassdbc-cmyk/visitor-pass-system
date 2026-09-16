@@ -95,8 +95,12 @@
     let currentUser = VPS.requireAuth(['hod']);
     let currentFilter = 'pending_hod';
     let searchQuery = '';
-    const isSuperUser = (currentUser.department === 'All' || !currentUser.department);
-    let selectedDeptFilter = isSuperUser ? 'All' : currentUser.department;
+    
+    // Strict HOD Division Enforcement:
+    // Every HOD user MUST only see requests for their designated division.
+    // If department is 'All' or not set, they CANNOT see other divisions.
+    const hasAssignedDept = !!(currentUser.department && currentUser.department !== 'All' && currentUser.department !== 'General');
+    const userDept = hasAssignedDept ? currentUser.department : '';
     VPS.renderSidebar('dashboard');
     renderPage();
 
@@ -112,11 +116,12 @@
       let records = VPS.filter({ search: searchQuery });
       
       // Strict Division Scoping:
-      // An HOD of e.g. "Sirasa FM" or "IT Division" ONLY sees passes for their assigned division!
-      if (!isSuperUser) {
-        records = records.filter(r => VPS.isDeptMatch(r.department, currentUser.department));
-      } else if (selectedDeptFilter && selectedDeptFilter !== 'All') {
-        records = records.filter(r => VPS.isDeptMatch(r.department, selectedDeptFilter));
+      // An HOD ONLY sees passes for their assigned division!
+      if (hasAssignedDept) {
+        records = records.filter(r => VPS.isDeptMatch(r.department, userDept));
+      } else {
+        // HOD without assigned division sees NO passes to protect privacy
+        records = [];
       }
       
       // Filter list based on active view state
@@ -124,10 +129,8 @@
       if (currentFilter === 'pending_hod') {
         filtered = records.filter(r => r.status === VPS.STATUS.PENDING_HOD);
       } else if (currentFilter === 'approved') {
-        // Show everything approved by HOD or Admin
         filtered = records.filter(r => r.status === VPS.STATUS.PENDING_ADMIN || r.status === VPS.STATUS.APPROVED);
       } else if (currentFilter === 'rejected') {
-        // Show things rejected (either at HOD or Admin level)
         filtered = records.filter(r => r.status === VPS.STATUS.REJECTED);
       } else {
         filtered = records; // All
@@ -136,12 +139,20 @@
       const pendingCount = records.filter(r => r.status === VPS.STATUS.PENDING_HOD).length;
       const approvedCount = records.filter(r => r.status === VPS.STATUS.PENDING_ADMIN || r.status === VPS.STATUS.APPROVED).length;
       const rejectedCount = records.filter(r => r.status === VPS.STATUS.REJECTED).length;
-      const deptDisplay = !isSuperUser ? `· Head of ${currentUser.department} (1st Level Approver)` : `· Head of Department (All Divisions)`;
+      const deptDisplay = hasAssignedDept ? `· Head of ${userDept} (1st Level Approver)` : `· ⚠️ No Division Assigned`;
       document.getElementById('page-content').innerHTML = `
         <div class="page-header fade-in">
           <h1>HOD Dashboard</h1>
           <p>Welcome back, ${currentUser.name} ${deptDisplay}</p>
         </div>
+        ${!hasAssignedDept ? `
+        <div class="card fade-in" style="border:1px solid rgba(239,68,68,0.5);background:rgba(239,68,68,0.08);margin-bottom:20px;padding:20px">
+          <h3 style="color:var(--danger);font-size:16px;margin-bottom:6px">⚠️ Division Not Assigned to Your Account</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin:0">
+            Your HOD account (<strong>${currentUser.username}</strong>) has no specific Division assigned. To protect privacy, requests from other divisions are hidden.<br>
+            Please contact the IT Administrator to assign your official Division in <strong>User Management</strong>.
+          </p>
+        </div>` : ''}
         <div class="stats-grid fade-in fade-in-delay-1">
           <div class="stat-card" style="cursor:pointer" onclick="changeFilter('pending_hod')">
             <div class="stat-icon">⏳</div>
@@ -168,22 +179,12 @@
               <input type="text" placeholder="Search by visitor name, NIC, host..." id="search-input"
                 oninput="searchQuery=this.value; renderPage()" value="${searchQuery}" />
             </div>
-            ${!isSuperUser ? `
             <div style="display:flex;align-items:center;gap:8px">
               <label style="font-size:12px;color:var(--text-muted);font-weight:600">Your Division:</label>
               <span class="badge" style="background:rgba(139,92,246,0.18);color:var(--accent-light);border:1px solid rgba(139,92,246,0.35);padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700">
-                🏢 ${currentUser.department}
+                🏢 ${hasAssignedDept ? userDept : 'None Assigned'}
               </span>
             </div>
-            ` : `
-            <div style="display:flex;align-items:center;gap:8px">
-              <label style="font-size:12px;color:var(--text-muted);font-weight:600">Division:</label>
-              <select class="form-control" style="width:auto;min-width:180px" id="hod-dept-filter" onchange="selectedDeptFilter=this.value; renderPage()">
-                <option value="All" ${selectedDeptFilter === 'All' ? 'selected' : ''}>All Divisions (All)</option>
-                ${(VPS.DIVISIONS || []).map(d => `<option value="${d}" ${selectedDeptFilter === d ? 'selected' : ''}>${d}</option>`).join('')}
-              </select>
-            </div>
-            `}
           </div>
           <div class="table-wrapper">
             ${filtered.length === 0
