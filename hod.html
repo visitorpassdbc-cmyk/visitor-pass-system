@@ -288,8 +288,8 @@
     function openApproveModal(id) {
       const rec = VPS.getById(id);
       if (!rec) return;
-      if (!isSuperUser && !VPS.isDeptMatch(rec.department, currentUser.department)) {
-        VPS.showNotification('You can only approve requests for your own division (' + currentUser.department + ')', 'error');
+      if (hasAssignedDept && !VPS.isDeptMatch(rec.department, userDept)) {
+        VPS.showNotification('You can only approve requests for your own division (' + userDept + ')', 'error');
         return;
       }
       document.getElementById('approve-id').value = id;
@@ -309,8 +309,8 @@
     function openRejectModal(id) {
       const rec = VPS.getById(id);
       if (!rec) return;
-      if (!isSuperUser && !VPS.isDeptMatch(rec.department, currentUser.department)) {
-        VPS.showNotification('You can only reject requests for your own division (' + currentUser.department + ')', 'error');
+      if (hasAssignedDept && !VPS.isDeptMatch(rec.department, userDept)) {
+        VPS.showNotification('You can only reject requests for your own division (' + userDept + ')', 'error');
         return;
       }
       document.getElementById('reject-id').value = id;
