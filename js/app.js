@@ -53,7 +53,7 @@ const VPS = (function () {
   const DEFAULT_USERS = [
     { id: 'u4', username: 'director', password: 'admin123', name: 'Director Fernando', role: ROLES.ADMIN, department: 'All', email: 'visitorpassdbc@gmail.com', avatar: 'D' },
     { id: 'u6', username: 'itadmin', password: 'admin123', name: 'IT Admin', role: ROLES.ITADMIN, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'I' },
-    { id: 'u_hod_it', username: 'hod_it', password: 'hod123', name: 'HOD IT Division', role: ROLES.HOD, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'H' },
+    { id: 'u_hod_it', username: 'hod_it', password: 'hod123', name: 'Mr. Sanjeewa (HOD IT)', role: ROLES.HOD, department: 'IT Division', email: 'sanjeewa.p@cmg.lk', avatar: 'S' },
     { id: 'u_sec', username: 'security', password: 'admin123', name: 'Security Officer', role: ROLES.SECURITY, department: 'Security', email: 'visitorpassdbc@gmail.com', avatar: 'S' },
   ];
   // ─── INIT ─────────────────────────────────────────────────
@@ -968,7 +968,7 @@ const VPS = (function () {
     serviceId: 'service_lkya9ra',
     templateId: 'template_k6oujm2',
     publicKey: 'fJ8WCcMeuWqCh1xnl',
-    hodEmail: 'visitorpassdbc@gmail.com',
+    hodEmail: 'sanjeewa.p@cmg.lk',
     adminEmail: 'visitorpassdbc@gmail.com'
   };
   function getEmailConfig() {
@@ -1066,13 +1066,13 @@ const VPS = (function () {
       submitted: {
         to_email: hodEmail,
         to_name: hodName,
-        subject: `[Approval Required] New Visitor Request — ${record.id} (${record.visitorName})`,
+        subject: `Approval Request: Visitor Pass ${record.id} (${record.visitorName})`,
         message: 
 `Dear ${hodName},
 
 A new visitor pass request has been submitted for your department and is awaiting your approval.
 
-📋 PASS DETAILS:
+PASS DETAILS:
 • Pass ID: ${record.id}
 • Visitor Name: ${record.visitorName}
 • NIC / Passport: ${record.visitorNIC || '—'}
@@ -1085,29 +1085,28 @@ A new visitor pass request has been submitted for your department and is awaitin
 • Special Notes / Clearance: ${record.notes || 'None'}
 ${groupText}
 
-👤 REQUESTED BY:
+REQUESTED BY:
 • Submitted by: ${record.submittedByName} (${record.submittedByDept})
 • Requester Email: ${record.requesterEmail || '—'}
 • Submitted At: ${formatDateTime(record.submittedAt)}
 
-👉 ACTION REQUIRED:
-Please login to the HOD Portal to review and approve or reject this request:
+HOD Review & Approval Portal:
 ${hodApproveLink}
 
 Thank you,
-Visitor Pass Management System`,
+Corporate Visitor Pass System`,
       },
 
       hod_approved: {
         to_email: adminEmail,
         to_name: adminName,
-        subject: `[Final Approval Required] Visitor Pass — ${record.id} (${record.visitorName})`,
+        subject: `Executive Approval: Visitor Pass ${record.id} (${record.visitorName})`,
         message: 
 `Dear ${adminName},
 
 A visitor pass request has been approved by the Head of Department and is now awaiting your final executive approval.
 
-📋 PASS DETAILS:
+PASS DETAILS:
 • Pass ID: ${record.id}
 • Visitor Name: ${record.visitorName}
 • NIC: ${record.visitorNIC || '—'}
