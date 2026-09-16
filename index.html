@@ -192,15 +192,9 @@
           </div>
         </div>
 
-        <div class="form-grid" style="margin-top:12px">
-          <div class="form-group">
-            <label class="form-label">Your Phone / Extension (දුරකථන අංකය)</label>
-            <input type="tel" class="form-control" id="req-phone" placeholder="e.g. 0771234567 or Ext. 104" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Your Email (ඔබගේ ඊමේල් ලිපිනය - අනුමැති දැනුම්දීම් සඳහා)</label>
-            <input type="email" class="form-control" id="req-email" placeholder="e.g. kasun@company.com" />
-          </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Your Email (ඔබගේ ඊමේල් ලිපිනය - අනුමැති දැනුම්දීම් සඳහා)</label>
+          <input type="email" class="form-control" id="req-email" placeholder="e.g. kasun@company.com" />
         </div>
 
         <!-- 2. Visitor Details -->
@@ -220,15 +214,9 @@
           </div>
         </div>
 
-        <div class="form-grid" style="margin-top:12px">
-          <div class="form-group">
-            <label class="form-label">Visitor Phone Number (දුරකථන අංකය - Optional)</label>
-            <input type="tel" class="form-control" id="vis-phone" placeholder="e.g. 0771234567 (Optional)" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Company / Organization (ආයතනය / සමාගම)</label>
-            <input type="text" class="form-control" id="vis-company" placeholder="e.g. ABC Solutions Pvt Ltd or Individual" />
-          </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Company / Organization (ආයතනය / සමාගම)</label>
+          <input type="text" class="form-control" id="vis-company" placeholder="e.g. ABC Solutions Pvt Ltd or Individual" />
         </div>
 
         <!-- 3. Visit Schedule & Host -->
@@ -341,7 +329,6 @@
       row.innerHTML = `
         <input type="text" class="form-control member-name" placeholder="Member Name *" required />
         <input type="text" class="form-control member-nic" placeholder="NIC / Passport" />
-        <input type="tel" class="form-control member-phone" placeholder="Phone" />
         <button type="button" class="btn btn-danger btn-sm" onclick="removeGroupMemberRow(${groupMemberCount})" style="padding:6px 10px">✕</button>
       `;
       container.appendChild(row);
@@ -362,23 +349,21 @@
       const groupRows = document.querySelectorAll('.group-member-row');
       const groupMembers = [];
       groupRows.forEach(row => {
-        const name = row.querySelector('.member-name').value.trim();
-        const nic = row.querySelector('.member-nic').value.trim();
-        const phone = row.querySelector('.member-phone').value.trim();
-        if (name) groupMembers.push({ name, nic, phone });
+        const name = row.querySelector('.member-name') ? row.querySelector('.member-name').value.trim() : '';
+        const nic = row.querySelector('.member-nic') ? row.querySelector('.member-nic').value.trim() : '';
+        if (name) groupMembers.push({ name, nic });
       });
 
       // 2. Requester details
       const requesterName = document.getElementById('req-name').value.trim();
       const requesterDept = document.getElementById('req-dept').value;
-      const requesterPhone = document.getElementById('req-phone').value.trim();
       const requesterEmail = document.getElementById('req-email').value.trim();
 
       // 3. Visitor Data package
       const visitorData = {
         visitorName: document.getElementById('vis-name').value.trim(),
         visitorNIC: document.getElementById('vis-nic').value.trim(),
-        visitorPhone: document.getElementById('vis-phone').value.trim(),
+        visitorPhone: '—',
         company: document.getElementById('vis-company').value.trim() || 'Individual',
         hostName: document.getElementById('host-name').value.trim(),
         department: requesterDept,
@@ -387,7 +372,7 @@
         purpose: document.getElementById('visit-purpose').value.trim(),
         notes: document.getElementById('visit-notes').value.trim(),
         groupMembers: groupMembers,
-        requesterPhone: requesterPhone,
+        requesterPhone: '—',
         requesterEmail: requesterEmail,
       };
 
