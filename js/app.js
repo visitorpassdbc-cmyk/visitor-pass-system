@@ -49,19 +49,42 @@ const VPS = (function () {
     'TX Room',
     'TV1'
   ];
-  // ─── DEFAULT USERS ───────────────────────────────────────
+  // ─── CRYPTO UTILITIES ─────────────────────────────────────
+  async function hashPassword(plain) {
+    if (!plain) return '';
+    try {
+      if (typeof crypto !== 'undefined' && crypto.subtle) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) {}
+    let h = 0xdeadbeef;
+    for (let i = 0; i < plain.length; i++) {
+      h = Math.imul(h ^ plain.charCodeAt(i), 2654435761);
+    }
+    return (h ^ (h >>> 16)).toString(16);
+  }
+
+  function sanitizeUser(u) {
+    if (!u) return null;
+    const clean = { ...u };
+    delete clean.password;
+    delete clean.passwordHash;
+    return clean;
+  }
+
+  // ─── DEFAULT USERS (SECURE HASHES ONLY - NO PLAINTEXT) ─────
   const DEFAULT_USERS = [
-    { id: 'u4', username: 'director', password: 'admin123', name: 'Director Fernando', role: ROLES.ADMIN, department: 'All', email: 'visitorpassdbc@gmail.com', avatar: 'D' },
-    { id: 'u6', username: 'itadmin', password: 'admin123', name: 'IT Admin', role: ROLES.ITADMIN, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'I' },
-    { id: 'u_hod_it', username: 'hod_it', password: 'hod123', name: 'Mr. Sanjeewa (HOD IT)', role: ROLES.HOD, department: 'IT Division', email: 'sanjeewa.p@cmg.lk', avatar: 'S' },
-    { id: 'u_sec', username: 'security', password: 'admin123', name: 'Security Officer', role: ROLES.SECURITY, department: 'Security', email: 'visitorpassdbc@gmail.com', avatar: 'S' },
+    { id: 'u4', username: 'director', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Director Fernando', role: ROLES.ADMIN, department: 'All', email: 'visitorpassdbc@gmail.com', avatar: 'D' },
+    { id: 'u6', username: 'itadmin', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'IT Admin', role: ROLES.ITADMIN, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'I' },
+    { id: 'u_hod_it', username: 'hod_it', passwordHash: '5c8473579466adb756fa9e042efc8d7756217c5f4c950731fcf96bd65ba184e9', name: 'Mr. Sanjeewa (HOD IT)', role: ROLES.HOD, department: 'IT Division', email: 'sanjeewa.p@cmg.lk', avatar: 'S' },
+    { id: 'u_sec', username: 'security', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', name: 'Security Officer', role: ROLES.SECURITY, department: 'Security', email: 'visitorpassdbc@gmail.com', avatar: 'S' },
   ];
   // ─── INIT ─────────────────────────────────────────────────
   function init() {
-    if (localStorage.getItem('vps_db_ver') !== '1.2') {
-      localStorage.removeItem(STORAGE_KEY);
+    if (localStorage.getItem('vps_db_ver') !== '2.0') {
       localStorage.removeItem(USERS_KEY);
-      localStorage.setItem('vps_db_ver', '1.2');
+      localStorage.setItem('vps_db_ver', '2.0');
     }
     if (!localStorage.getItem(USERS_KEY)) {
       localStorage.setItem(USERS_KEY, JSON.stringify(DEFAULT_USERS));
@@ -334,21 +357,32 @@ const VPS = (function () {
       initFirebaseSync();
     }, 100);
   }
-  // ─── AUTH ─────────────────────────────────────────────────
-  function login(username, password) {
+  // ─── AUTH (SECURE SHA-256 HASH CHECK + SESSION SANITIZATION) ─
+  async function login(username, password) {
     const users = getAllUsers();
-    // Case-insensitive username check
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
+    const inputHash = await hashPassword(password);
+    const user = users.find(u => 
+      u.username.toLowerCase() === username.toLowerCase() && 
+      (u.passwordHash === inputHash || (u.password && u.password === password))
+    );
     if (user) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-      return user;
+      // Auto upgrade plaintext account to cryptographic hash
+      if (!user.passwordHash || user.password) {
+        user.passwordHash = inputHash;
+        delete user.password;
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        syncUserToCloud(user);
+      }
+      const sessionUser = sanitizeUser(user);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+      return sessionUser;
     }
     return null;
   }
   // Cloud-aware login: if local fails, fetch users from Firebase and retry
   async function loginWithCloud(username, password) {
     // First try local storage
-    const localResult = login(username, password);
+    const localResult = await login(username, password);
     if (localResult) return localResult;
     // If Firebase is enabled, fetch users directly from cloud and retry
     if (!isFirebaseEnabled()) return null;
@@ -360,14 +394,8 @@ const VPS = (function () {
       const cloudUsers = [];
       snapshot.forEach(doc => cloudUsers.push(doc.data()));
       if (cloudUsers.length > 0) {
-        // Update local storage with cloud users
         localStorage.setItem(USERS_KEY, JSON.stringify(cloudUsers));
-        // Try login again with cloud users
-        const user = cloudUsers.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
-        if (user) {
-          localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-          return user;
-        }
+        return await login(username, password);
       }
     } catch (err) {
       console.warn('Cloud login check failed:', err);
@@ -376,7 +404,7 @@ const VPS = (function () {
   }
   function logout() {
     localStorage.removeItem(SESSION_KEY);
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';
   }
   function getCurrentUser() {
     const s = localStorage.getItem(SESSION_KEY);
@@ -385,12 +413,12 @@ const VPS = (function () {
   function requireAuth(allowedRoles) {
     const user = getCurrentUser();
     if (!user) {
-      window.location.href = 'index.html';
+      window.location.href = 'login.html';
       return null;
     }
     if (allowedRoles && !allowedRoles.includes(user.role)) {
       showNotification('Access denied for your role', 'error');
-      setTimeout(() => window.location.href = 'index.html', 1500);
+      setTimeout(() => window.location.href = 'login.html', 1500);
       return null;
     }
     return user;
@@ -914,15 +942,16 @@ const VPS = (function () {
   function getUserById(id) {
     return getAllUsers().find(u => u.id === id) || null;
   }
-  function addUser(userData) {
+  async function addUser(userData) {
     const users = getAllUsers();
     // Case-insensitive username uniqueness check
     const existing = users.find(u => u.username.toLowerCase() === userData.username.toLowerCase());
     if (existing) return { error: 'Username already exists' };
+    const passwordHash = await hashPassword(userData.password);
     const newUser = {
       id: 'u' + Date.now(),
       username: userData.username,
-      password: userData.password,
+      passwordHash: passwordHash,
       name: userData.name,
       role: userData.role,
       email: userData.email || '',
@@ -932,9 +961,9 @@ const VPS = (function () {
     users.push(newUser);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
     syncUserToCloud(newUser);
-    return newUser;
+    return sanitizeUser(newUser);
   }
-  function updateUser(id, updates) {
+  async function updateUser(id, updates) {
     const users = getAllUsers();
     const idx = users.findIndex(u => u.id === id);
     if (idx === -1) return false;
@@ -942,16 +971,21 @@ const VPS = (function () {
     if (updates.username && users.find(u => u.username === updates.username && u.id !== id)) {
       return { error: 'Username already taken' };
     }
-    users[idx] = { ...users[idx], ...updates, id };
-    if (updates.name) users[idx].avatar = updates.name.charAt(0).toUpperCase();
+    const cleanUpdates = { ...updates };
+    if (cleanUpdates.password) {
+      cleanUpdates.passwordHash = await hashPassword(cleanUpdates.password);
+      delete cleanUpdates.password;
+    }
+    users[idx] = { ...users[idx], ...cleanUpdates, id };
+    if (cleanUpdates.name) users[idx].avatar = cleanUpdates.name.charAt(0).toUpperCase();
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
     syncUserToCloud(users[idx]);
     // Update session if editing current user
     const session = getCurrentUser();
     if (session && session.id === id) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(users[idx]));
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sanitizeUser(users[idx])));
     }
-    return users[idx];
+    return sanitizeUser(users[idx]);
   }
   function deleteUser(id) {
     const session = getCurrentUser();
@@ -1226,22 +1260,26 @@ Visitor Pass Management System`,
     });
   }
   // ─── PASSWORD CHANGE MODAL (DYNAMIC INJECTION) ────────────
-  function changePassword(userId, currentPassword, newPassword) {
+  async function changePassword(userId, currentPassword, newPassword) {
     const users = getAllUsers();
     const idx = users.findIndex(u => u.id === userId);
     if (idx === -1) return { error: 'User not found' };
     
-    if (users[idx].password !== currentPassword) {
+    const currHash = await hashPassword(currentPassword);
+    const user = users[idx];
+    const match = (user.passwordHash && user.passwordHash === currHash) || (user.password && user.password === currentPassword);
+    if (!match) {
       return { error: 'Incorrect current password' };
     }
     
-    users[idx].password = newPassword;
+    user.passwordHash = await hashPassword(newPassword);
+    delete user.password;
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    syncUserToCloud(users[idx]);
+    syncUserToCloud(user);
     
     const session = getCurrentUser();
     if (session && session.id === userId) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(users[idx]));
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sanitizeUser(user)));
     }
     return true;
   }
@@ -1282,7 +1320,7 @@ Visitor Pass Management System`,
         if (e.target === modal) modal.classList.remove('active');
       });
       const form = document.getElementById('vps-change-password-form');
-      form.addEventListener('submit', function(e) {
+      form.addEventListener('submit', async function(e) {
         e.preventDefault();
         const curr = document.getElementById('vps-pwd-curr').value;
         const newP = document.getElementById('vps-pwd-new').value;
@@ -1294,7 +1332,7 @@ Visitor Pass Management System`,
         }
         const user = getCurrentUser();
         if (!user) return;
-        const res = changePassword(user.id, curr, newP);
+        const res = await changePassword(user.id, curr, newP);
         if (res === true) {
           showNotification('Password updated successfully!', 'success');
           modal.classList.remove('active');

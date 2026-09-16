@@ -596,7 +596,7 @@
       document.getElementById('pwd-hint').style.display = 'block';
       openModal('user-modal');
     }
-    function handleUserFormSubmit(e) {
+    async function handleUserFormSubmit(e) {
       e.preventDefault();
       const id = document.getElementById('edit-user-id').value;
       const name     = document.getElementById('u-name').value.trim();
@@ -618,13 +618,13 @@
         // Edit
         const updates = { name, email, username, role, department: dept };
         if (password) updates.password = password;
-        const res = VPS.updateUser(id, updates);
+        const res = await VPS.updateUser(id, updates);
         if (res && res.error) { VPS.showNotification(res.error, 'error'); return; }
         VPS.showNotification('User updated successfully!', 'success');
       } else {
         // Add
         if (!password) { VPS.showNotification('Password is required', 'error'); return; }
-        const res = VPS.addUser({ name, email, username, password, role, department: dept });
+        const res = await VPS.addUser({ name, email, username, password, role, department: dept });
         if (res && res.error) { VPS.showNotification(res.error, 'error'); return; }
         VPS.showNotification(`User "${name}" added successfully!`, 'success');
       }

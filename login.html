@@ -191,7 +191,7 @@
       }
 
       // 2. Client-side fallback check
-      const localUser = VPS.login(username, password);
+      const localUser = await VPS.login(username, password);
       if (localUser) {
         redirectByRole(localUser.role);
         return;
