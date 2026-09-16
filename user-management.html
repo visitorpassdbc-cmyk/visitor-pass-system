@@ -506,14 +506,35 @@
 
     // ─── TAB SWITCHING ────────────────────────────────────────
     function switchTab(tabName) {
-      // Hide all panels and deactivate all buttons
+      if (!tabName) tabName = 'users';
+      
+      // Hide all panels and deactivate all tab buttons
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      
       // Show selected panel
       const panel = document.getElementById('tab-' + tabName);
       const btn   = document.getElementById('tab-' + tabName + '-btn');
       if (panel) panel.classList.add('active');
       if (btn)   btn.classList.add('active');
+
+      // Sync active state in sidebar navigation
+      document.querySelectorAll('.sidebar .nav-item').forEach(item => item.classList.remove('active'));
+      const sideNavId = tabName === 'users' ? 'nav-users' : 'nav-' + tabName + '-settings';
+      const sideNavItem = document.getElementById(sideNavId);
+      if (sideNavItem) sideNavItem.classList.add('active');
+
+      // Update URL hash smoothly without page jump
+      if (window.location.hash !== '#' + tabName) {
+        history.replaceState(null, '', '#' + tabName);
+      }
+
+      // Close mobile sidebar overlay if open
+      const sidebarEl = document.getElementById('sidebar');
+      const overlayEl = document.querySelector('.sidebar-overlay');
+      if (sidebarEl) sidebarEl.classList.remove('open');
+      if (overlayEl) overlayEl.classList.remove('active');
+
       // Load tab data
       if (tabName === 'users')    renderUsersTable();
       if (tabName === 'settings') loadApprovalSettings();
@@ -522,11 +543,23 @@
       if (tabName === 'cloud')    loadCloudSettings();
     }
 
-    // Check if opened from a direct hash link
-    if (window.location.hash === '#email')    switchTab('email');
-    if (window.location.hash === '#settings') switchTab('settings');
-    if (window.location.hash === '#backup')   switchTab('backup');
-    if (window.location.hash === '#cloud')    switchTab('cloud');
+    // Hashchange listener for instant navigation between tabs and sidebar
+    window.addEventListener('hashchange', () => {
+      const hash = window.location.hash.replace('#', '');
+      if (['users', 'settings', 'email', 'backup', 'cloud'].includes(hash)) {
+        switchTab(hash);
+      } else if (!hash) {
+        switchTab('users');
+      }
+    });
+
+    // Initial tab selection from hash or default to 'users'
+    const initialHash = window.location.hash.replace('#', '');
+    if (['users', 'settings', 'email', 'backup', 'cloud'].includes(initialHash)) {
+      switchTab(initialHash);
+    } else {
+      switchTab('users');
+    }
 
     // ─── USERS TABLE ─────────────────────────────────────────
 
@@ -768,11 +801,20 @@
         'Gate Scanned': all.filter(r => r.scannedAt !== null).length,
       };
       const icons = { Total: '📋', Approved: '✅', 'Pending HOD': '⏳', 'Pending Admin': '🔵', Rejected: '❌', 'Gate Scanned': '📷' };
+      const actions = {
+        Total: "exportAll()",
+        Approved: "exportApproved()",
+        'Pending HOD': "exportPending()",
+        'Pending Admin': "exportPending()",
+        Rejected: "VPS.exportToExcel(VPS.filter({ status: 'rejected' }), 'rejected_records')",
+        'Gate Scanned': "VPS.exportToExcel(VPS.filter().filter(r => r.scannedAt), 'scanned_records')",
+      };
       document.getElementById('db-summary').innerHTML = Object.entries(counts).map(([label, count]) => `
-        <div class="stat-card" style="padding:16px">
+        <div class="stat-card" style="padding:16px;cursor:pointer;position:relative;transition:all 0.2s ease" onclick="${actions[label] || ''}" title="Click to export ${label} records to Excel" onmouseover="this.style.transform='translateY(-3px)';this.style.borderColor='var(--accent-primary)'" onmouseout="this.style.transform='none';this.style.borderColor='var(--glass-border)'">
           <div style="font-size:22px;margin-bottom:6px">${icons[label] || '📊'}</div>
           <div style="font-size:24px;font-weight:800;color:var(--text-primary)">${count}</div>
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">${label}</div>
+          <div style="font-size:10px;color:var(--accent-light);margin-top:6px">📥 Click to Export</div>
         </div>
       `).join('');
     }

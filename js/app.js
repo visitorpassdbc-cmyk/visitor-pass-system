@@ -800,7 +800,7 @@ const VPS = (function () {
         { icon: '📊', label: 'All Records', href: '#all', id: 'all' },
       ],
       [ROLES.ITADMIN]: [
-        { icon: '👥', label: 'User Management', href: 'user-management.html', id: 'users' },
+        { icon: '👥', label: 'User Management', href: 'user-management.html#users', id: 'users' },
         { icon: '⚙️', label: 'Approval Settings', href: 'user-management.html#settings', id: 'approval-settings' },
         { icon: '✉️', label: 'Email Settings', href: 'user-management.html#email', id: 'email-settings' },
         { icon: '💾', label: 'Excel Backups', href: 'user-management.html#backup', id: 'backup-settings' },
