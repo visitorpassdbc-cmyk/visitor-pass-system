@@ -256,13 +256,13 @@
               <div class="section-title">📬 Notification Recipients</div>
               <div class="form-grid">
                 <div class="form-group">
-                  <label class="form-label">HOD Email Address</label>
-                  <input type="email" class="form-control" id="cfg-hod-email" placeholder="hod@company.com" />
-                  <small style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">Receives: New requests + rejected notifications</small>
+                  <label class="form-label">Default HOD Fallback Email</label>
+                  <input type="email" class="form-control" id="cfg-hod-email" placeholder="e.g. visitorpassdbc@gmail.com" />
+                  <small style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">Receives: New requests if a division HOD has no specific email</small>
                 </div>
                 <div class="form-group">
                   <label class="form-label">Admin Director Email</label>
-                  <input type="email" class="form-control" id="cfg-admin-email" placeholder="director@company.com" />
+                  <input type="email" class="form-control" id="cfg-admin-email" placeholder="e.g. visitorpassdbc@gmail.com" />
                   <small style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">Receives: HOD-approved requests waiting final approval</small>
                 </div>
               </div>
@@ -415,7 +415,8 @@
           </div>
           <div class="form-group">
             <label class="form-label">Email Address *</label>
-            <input type="email" class="form-control" id="u-email" placeholder="e.g. kasun@company.com" required />
+            <input type="email" class="form-control" id="u-email" placeholder="e.g. name@gmail.com" required />
+            <small style="color:var(--text-muted);font-size:11px;margin-top:4px;display:block">Enter a valid inbox email so pass approvals are delivered.</small>
           </div>
           <div class="form-group">
             <label class="form-label">Username *</label>
@@ -607,6 +608,10 @@
       
       if (role === 'hod' && (!dept || dept === 'All' || dept === 'General')) {
         VPS.showNotification('An HOD must be assigned to a specific Division (e.g. Sirasa FM, IT Division, Admin, etc.)!', 'error');
+        return;
+      }
+      if ((role === 'hod' || role === 'admin') && email.endsWith('@company.com')) {
+        VPS.showNotification('Please enter a real email address (e.g. Gmail or corporate inbox, not dummy @company.com) so notifications can be delivered!', 'warning');
         return;
       }
       if (id) {

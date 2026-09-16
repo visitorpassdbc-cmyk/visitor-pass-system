@@ -51,10 +51,10 @@ const VPS = (function () {
   ];
   // ─── DEFAULT USERS ───────────────────────────────────────
   const DEFAULT_USERS = [
-    { id: 'u4', username: 'director', password: 'admin123', name: 'Director Fernando', role: ROLES.ADMIN, department: 'All', email: 'director@company.com', avatar: 'D' },
-    { id: 'u6', username: 'itadmin', password: 'admin123', name: 'IT Admin', role: ROLES.ITADMIN, department: 'IT Division', email: 'itadmin@company.com', avatar: 'I' },
-    { id: 'u_hod_it', username: 'hod_it', password: 'hod123', name: 'HOD IT Division', role: ROLES.HOD, department: 'IT Division', email: 'hod_it@company.com', avatar: 'H' },
-    { id: 'u_sec', username: 'security', password: 'admin123', name: 'Security Officer', role: ROLES.SECURITY, department: 'Security', email: 'security@company.com', avatar: 'S' },
+    { id: 'u4', username: 'director', password: 'admin123', name: 'Director Fernando', role: ROLES.ADMIN, department: 'All', email: 'visitorpassdbc@gmail.com', avatar: 'D' },
+    { id: 'u6', username: 'itadmin', password: 'admin123', name: 'IT Admin', role: ROLES.ITADMIN, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'I' },
+    { id: 'u_hod_it', username: 'hod_it', password: 'hod123', name: 'HOD IT Division', role: ROLES.HOD, department: 'IT Division', email: 'visitorpassdbc@gmail.com', avatar: 'H' },
+    { id: 'u_sec', username: 'security', password: 'admin123', name: 'Security Officer', role: ROLES.SECURITY, department: 'Security', email: 'visitorpassdbc@gmail.com', avatar: 'S' },
   ];
   // ─── INIT ─────────────────────────────────────────────────
   function init() {
@@ -903,6 +903,12 @@ const VPS = (function () {
         users.push(defUser);
       }
     });
+    // Replace dummy @company.com with project email so notifications never get lost
+    users.forEach(u => {
+      if (u.email && u.email.endsWith('@company.com')) {
+        u.email = 'visitorpassdbc@gmail.com';
+      }
+    });
     return users;
   }
   function getUserById(id) {
@@ -962,8 +968,8 @@ const VPS = (function () {
     serviceId: 'service_lkya9ra',
     templateId: 'template_k6oujm2',
     publicKey: 'fJ8WCcMeuWqCh1xnl',
-    hodEmail: '',
-    adminEmail: ''
+    hodEmail: 'visitorpassdbc@gmail.com',
+    adminEmail: 'visitorpassdbc@gmail.com'
   };
   function getEmailConfig() {
     const raw = localStorage.getItem(EMAIL_CONFIG_KEY);
@@ -977,8 +983,8 @@ const VPS = (function () {
         serviceId: sId,
         templateId: parsed.templateId || DEFAULT_EMAIL_CONFIG.templateId,
         publicKey: parsed.publicKey || DEFAULT_EMAIL_CONFIG.publicKey,
-        hodEmail: parsed.hodEmail || '',
-        adminEmail: parsed.adminEmail || '',
+        hodEmail: (parsed.hodEmail && !parsed.hodEmail.endsWith('@company.com')) ? parsed.hodEmail : DEFAULT_EMAIL_CONFIG.hodEmail,
+        adminEmail: (parsed.adminEmail && !parsed.adminEmail.endsWith('@company.com')) ? parsed.adminEmail : DEFAULT_EMAIL_CONFIG.adminEmail,
         notifSubmit: parsed.notifSubmit !== undefined ? parsed.notifSubmit : true,
         notifHod: parsed.notifHod !== undefined ? parsed.notifHod : true,
         notifApproved: parsed.notifApproved !== undefined ? parsed.notifApproved : true,
@@ -1013,23 +1019,33 @@ const VPS = (function () {
     const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
     const appBaseUrl = currentOrigin ? `${currentOrigin}${basePath}` : basePath;
 
-    // Resolve Department HOD Email
+    // Helper to verify if an email is real and deliverable (not dummy company.com)
+    function isValidRealEmail(e) {
+      if (!e || typeof e !== 'string') return false;
+      const clean = e.trim().toLowerCase();
+      return clean.includes('@') && clean.includes('.') && !clean.endsWith('@company.com');
+    }
+
+    // Resolve Department HOD Email using smart division matching
     const deptHod = allUsers.find(u => 
       u.role === ROLES.HOD && 
       u.department && 
-      u.department.toLowerCase() === (record.department || '').toLowerCase() && 
-      u.email
+      isDeptMatch(u.department, record.department) && 
+      isValidRealEmail(u.email)
     );
-    // Fallback order: Specific HOD email -> configured hodEmail -> first admin email -> any HOD email
-    const fallbackHod = allUsers.find(u => u.role === ROLES.HOD && u.email)?.email;
-    const adminUser = allUsers.find(u => u.role === ROLES.ADMIN && u.email);
-    const adminEmail = (adminUser && adminUser.email) ? adminUser.email : (cfg.adminEmail || 'visitorpassdbc@gmail.com');
+
+    // Fallback real HOD / Admin in system
+    const fallbackRealHod = allUsers.find(u => u.role === ROLES.HOD && isValidRealEmail(u.email))?.email;
+    const adminUser = allUsers.find(u => u.role === ROLES.ADMIN && isValidRealEmail(u.email));
+    const adminEmail = (adminUser && isValidRealEmail(adminUser.email)) 
+      ? adminUser.email 
+      : (isValidRealEmail(cfg.adminEmail) ? cfg.adminEmail : 'visitorpassdbc@gmail.com');
     const adminName = (adminUser && adminUser.name) ? adminUser.name : 'Admin Director';
 
-    const hodEmail = (deptHod && deptHod.email) 
+    const hodEmail = (deptHod && isValidRealEmail(deptHod.email)) 
       ? deptHod.email 
-      : (cfg.hodEmail || fallbackHod || adminEmail || 'visitorpassdbc@gmail.com');
-    const hodName = (deptHod && deptHod.name) ? deptHod.name : 'Head of Department';
+      : (isValidRealEmail(cfg.hodEmail) ? cfg.hodEmail : (fallbackRealHod || adminEmail || 'visitorpassdbc@gmail.com'));
+    const hodName = (deptHod && deptHod.name) ? deptHod.name : `${record.department || 'Division'} HOD`;
 
     // Build group members text if present
     let groupText = '';
@@ -1041,6 +1057,10 @@ const VPS = (function () {
     const hodApproveLink = `${appBaseUrl}/hod.html`;
     const adminApproveLink = `${appBaseUrl}/admin-director.html`;
     const verifyPassLink = `${appBaseUrl}/verify.html?scan=${record.id}`;
+
+    const requesterTargetEmail = (record.requesterEmail && isValidRealEmail(record.requesterEmail))
+      ? record.requesterEmail
+      : (getUserById(record.submittedBy)?.email || hodEmail);
 
     const templates = {
       submitted: {
@@ -1067,6 +1087,7 @@ ${groupText}
 
 👤 REQUESTED BY:
 • Submitted by: ${record.submittedByName} (${record.submittedByDept})
+• Requester Email: ${record.requesterEmail || '—'}
 • Submitted At: ${formatDateTime(record.submittedAt)}
 
 👉 ACTION REQUIRED:
@@ -1111,7 +1132,7 @@ Visitor Pass Management System`,
       },
 
       approved: {
-        to_email: getUserById(record.submittedBy)?.email || hodEmail || cfg.hodEmail || adminEmail,
+        to_email: requesterTargetEmail,
         to_name: record.submittedByName,
         subject: `✅ Visitor Pass Approved — ${record.id} (${record.visitorName})`,
         message: 
@@ -1133,7 +1154,7 @@ Visitor Pass Management System`,
       },
 
       rejected: {
-        to_email: getUserById(record.submittedBy)?.email || hodEmail || cfg.hodEmail || adminEmail,
+        to_email: requesterTargetEmail,
         to_name: record.submittedByName,
         subject: `❌ Visitor Request Rejected — ${record.id} (${record.visitorName})`,
         message: 
@@ -1172,7 +1193,7 @@ Visitor Pass Management System`,
         pass_id: record.id,
       });
       console.log(`Email sent successfully to ${tpl.to_email} (${type})`);
-      showNotification(`📧 Email notification sent to ${tpl.to_name} (${tpl.to_email})`, 'success', 3500);
+      showNotification(`📧 Email notification sent to ${tpl.to_name} (${tpl.to_email})`, 'success', 4000);
     } catch (err) {
       console.error('EmailJS error:', err);
       showNotification(`⚠️ Email dispatch failed: ${err.text || err.message || 'Check EmailJS config'}`, 'warning', 4000);
