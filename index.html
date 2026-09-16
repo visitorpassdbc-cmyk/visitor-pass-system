@@ -132,18 +132,31 @@
       <div class="logo-icon" style="width:36px;height:36px;font-size:18px">🎫</div>
       <h2 style="font-size:18px">VisitorPass <span style="font-size:12px;font-weight:400;color:var(--text-muted)">| Public Portal</span></h2>
     </a>
-    <div>
-      <a href="login.html" class="btn btn-outline btn-sm" style="font-size:12px">🔐 Approver Login (HOD / Director)</a>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button type="button" class="btn btn-outline btn-sm" onclick="switchPortalTab('track')" id="nav-btn-track" style="font-size:12px;display:flex;align-items:center;gap:5px">
+        🔍 <span>Track Pass Status</span>
+      </button>
+      <a href="login.html" class="btn btn-outline btn-sm" style="font-size:12px">🔐 Approver Login</a>
     </div>
   </header>
 
   <div class="public-container">
     <div class="public-header">
-      <div class="public-badge">⚡ Password-Free Request Portal</div>
-      <h1 style="font-size:28px;font-weight:800;margin-bottom:8px">Submit Visitor Pass Request</h1>
-      <p style="color:var(--text-secondary);font-size:14px;max-width:560px;margin:0 auto">
+      <div class="public-badge" id="public-badge">⚡ Password-Free Request Portal</div>
+      <h1 style="font-size:28px;font-weight:800;margin-bottom:8px" id="public-title">Submit Visitor Pass Request</h1>
+      <p style="color:var(--text-secondary);font-size:14px;max-width:560px;margin:0 auto" id="public-desc">
         Enter your name, division, and the visitor's information. Your request will be automatically forwarded to your division's Head of Department (HOD) for approval.
       </p>
+
+      <!-- Portal Tabs: New Request vs Track Status -->
+      <div style="display:inline-flex;background:rgba(255,255,255,0.06);padding:4px;border-radius:12px;border:1px solid var(--glass-border);margin-top:20px;gap:6px">
+        <button type="button" id="tab-btn-request" class="btn btn-sm btn-primary" onclick="switchPortalTab('request')" style="border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600">
+          ➕ New Pass Request
+        </button>
+        <button type="button" id="tab-btn-track" class="btn btn-sm btn-outline" onclick="switchPortalTab('track')" style="border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600">
+          🔍 Track Pass Status
+        </button>
+      </div>
     </div>
 
     <!-- Main Request Form -->
@@ -301,15 +314,37 @@
 
         <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
           <button class="btn btn-outline" onclick="window.print()">🖨️ Print Reference</button>
+          <a id="res-track-btn" href="#" class="btn btn-outline" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">🔍 Track Pass Status</a>
           <button class="btn btn-primary" onclick="resetForNewRequest()">➕ Submit Another Request</button>
         </div>
       </div>
 
     </div>
+
+    <!-- Track Pass Status Container -->
+    <div class="public-card" id="track-container" style="display:none">
+      <div class="section-head" style="color:var(--accent-light);margin-bottom:8px">
+        <span>🔍</span> Check Visitor Pass Status (පාස් එකේ තත්ත්වය පරීක්ෂා කිරීම)
+      </div>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:20px">
+        Enter your <strong>Pass Reference ID</strong> (e.g. <code>VIS-202609-0001</code>) or the visitor's <strong>NIC</strong> or <strong>Name</strong> to view live approval status and access your QR pass.
+      </p>
+
+      <form id="track-pass-form" onsubmit="handleTrackPass(event)" style="display:flex;gap:10px;flex-wrap:wrap">
+        <input type="text" id="track-search-input" class="form-control" placeholder="Enter Pass ID (e.g. VIS-202609-0001) or Visitor NIC / Name..." required style="flex:1;min-width:260px;font-size:14px" />
+        <button type="submit" class="btn btn-primary" id="track-search-btn" style="padding:10px 22px;display:flex;align-items:center;gap:6px">
+          🔍 Check Status
+        </button>
+      </form>
+
+      <!-- Track Result Area -->
+      <div id="track-result-box" style="margin-top:24px;display:none"></div>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -416,6 +451,12 @@
       document.getElementById('res-datetime').textContent = `${record.visitDate} @ ${record.visitTime}`;
       document.getElementById('res-hod-dept').textContent = record.department;
 
+      const trackBtn = document.getElementById('res-track-btn');
+      if (trackBtn) {
+        trackBtn.href = `verify.html?scan=${encodeURIComponent(record.id)}`;
+        trackBtn.target = '_blank';
+      }
+
       window.scrollTo({ top: 100, behavior: 'smooth' });
     }
 
@@ -427,6 +468,224 @@
       document.getElementById('submit-btn').innerHTML = '🚀 Submit for Approval';
       document.getElementById('success-panel').style.display = 'none';
       document.getElementById('public-visitor-form').style.display = 'block';
+    }
+
+    // ─── PORTAL TAB SWITCHING (REQUEST vs TRACK) ───────────────
+    function switchPortalTab(tab) {
+      const formContainer = document.getElementById('form-container');
+      const trackContainer = document.getElementById('track-container');
+      const btnReq = document.getElementById('tab-btn-request');
+      const btnTrack = document.getElementById('tab-btn-track');
+      const headerTitle = document.getElementById('public-title');
+      const headerDesc = document.getElementById('public-desc');
+      const headerBadge = document.getElementById('public-badge');
+
+      if (!formContainer || !trackContainer) return;
+
+      if (tab === 'track') {
+        formContainer.style.display = 'none';
+        trackContainer.style.display = 'block';
+        if (btnReq) btnReq.className = 'btn btn-sm btn-outline';
+        if (btnTrack) btnTrack.className = 'btn btn-sm btn-primary';
+        if (headerBadge) headerBadge.textContent = '🔍 Real-Time Pass Verification';
+        if (headerTitle) headerTitle.textContent = 'Track Visitor Pass Status';
+        if (headerDesc) headerDesc.textContent = 'Check the real-time approval status of your submitted visitor pass or access your approved QR gate pass.';
+        const input = document.getElementById('track-search-input');
+        if (input) input.focus();
+      } else {
+        trackContainer.style.display = 'none';
+        formContainer.style.display = 'block';
+        if (btnReq) btnReq.className = 'btn btn-sm btn-primary';
+        if (btnTrack) btnTrack.className = 'btn btn-sm btn-outline';
+        if (headerBadge) headerBadge.textContent = '⚡ Password-Free Request Portal';
+        if (headerTitle) headerTitle.textContent = 'Submit Visitor Pass Request';
+        if (headerDesc) headerDesc.textContent = "Enter your name, division, and the visitor's information. Your request will be automatically forwarded to your division's Head of Department (HOD) for approval.";
+      }
+    }
+
+    // ─── TRACK PASS STATUS SEARCH ──────────────────────────────
+    async function handleTrackPass(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('track-search-input');
+      const btn = document.getElementById('track-search-btn');
+      const resultBox = document.getElementById('track-result-box');
+      if (!input || !resultBox) return;
+
+      const query = input.value.trim();
+      if (!query) return;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Searching...';
+      }
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div style="text-align:center;padding:30px">
+          <div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.1);border-left-color:var(--accent-primary);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div>
+          <p style="color:var(--text-secondary);font-size:13px">Searching database records...</p>
+        </div>
+      `;
+
+      try {
+        let all = VPS.getAll();
+
+        // Check if exact Pass ID match is in local storage
+        let exact = all.find(r => r.id && r.id.toUpperCase() === query.toUpperCase());
+
+        // If not found locally, try fetching directly from Firestore if cloud is enabled
+        if (!exact && VPS.isFirebaseEnabled()) {
+          try {
+            if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+              const db = firebase.firestore();
+              const docSnap = await db.collection('visitor_passes').doc(query.toUpperCase()).get();
+              if (docSnap.exists) {
+                exact = docSnap.data();
+              }
+            }
+          } catch (cloudErr) {
+            console.warn('Direct cloud pass lookup warning:', cloudErr);
+          }
+        }
+
+        let matches = [];
+        if (exact) {
+          matches = [exact];
+        } else {
+          const q = query.toLowerCase();
+          matches = all.filter(r => 
+            (r.id && r.id.toLowerCase().includes(q)) ||
+            (r.visitorName && r.visitorName.toLowerCase().includes(q)) ||
+            (r.visitorNIC && r.visitorNIC.toLowerCase().includes(q)) ||
+            (r.hostName && r.hostName.toLowerCase().includes(q))
+          );
+        }
+
+        if (matches.length === 0) {
+          resultBox.innerHTML = `
+            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:24px;text-align:center">
+              <div style="font-size:36px;margin-bottom:8px">🔍</div>
+              <h3 style="color:var(--text-primary);font-size:16px;margin-bottom:6px">No Visitor Pass Found</h3>
+              <p style="color:var(--text-secondary);font-size:13px;max-width:440px;margin:0 auto">
+                We couldn't find any pass matching "<strong>${escapeHtml(query)}</strong>". Please check your Reference ID (e.g. <code>VIS-202609-0001</code>) or visitor NIC and try again.
+              </p>
+            </div>
+          `;
+          return;
+        }
+
+        resultBox.innerHTML = matches.map(rec => renderTrackCardHTML(rec)).join('<div style="height:16px"></div>');
+
+        // Render QR codes for approved passes
+        matches.forEach(rec => {
+          if (rec.status === 'approved') {
+            setTimeout(() => {
+              VPS.generateQR(`track-qr-${rec.id}`, rec.id);
+            }, 60);
+          }
+        });
+
+      } catch (err) {
+        console.error('Track pass error:', err);
+        resultBox.innerHTML = `
+          <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:16px;color:#fca5a5;font-size:13px;text-align:center">
+            ⚠️ An error occurred while searching records. Please try again.
+          </div>
+        `;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '🔍 Check Status';
+        }
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function renderTrackCardHTML(rec) {
+      const isApproved = rec.status === 'approved';
+      const isPendingHod = rec.status === 'pending_hod';
+      const isPendingAdmin = rec.status === 'pending_admin';
+      const isRejected = rec.status === 'rejected';
+
+      let badgeHtml = '';
+      let statusDesc = '';
+      let borderStyle = 'border: 1px solid var(--glass-border);';
+
+      if (isApproved) {
+        badgeHtml = '<span class="badge badge-approved" style="font-size:13px;padding:6px 14px">✅ APPROVED & ACTIVE</span>';
+        statusDesc = `Fully approved by Management (${escapeHtml(rec.adminApproval?.byName || 'Admin Director')}). Pass is ready for presentation at Security.`;
+        borderStyle = 'border: 1px solid rgba(16, 185, 129, 0.4); box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);';
+      } else if (isPendingHod) {
+        badgeHtml = '<span class="badge badge-pending" style="font-size:13px;padding:6px 14px">⏳ PENDING HOD APPROVAL</span>';
+        statusDesc = `Your request has been submitted and is currently awaiting review by the Head of ${escapeHtml(rec.department)}.`;
+      } else if (isPendingAdmin) {
+        badgeHtml = '<span class="badge badge-hod" style="font-size:13px;padding:6px 14px">🔵 HOD RECOMMENDED — PENDING DIRECTOR</span>';
+        statusDesc = `Recommended by HOD (${escapeHtml(rec.hodApproval?.byName || 'HOD')}). Awaiting final executive approval from Admin Director.`;
+      } else if (isRejected) {
+        badgeHtml = '<span class="badge badge-rejected" style="font-size:13px;padding:6px 14px">❌ REJECTED</span>';
+        statusDesc = `Reason: "${escapeHtml(rec.adminApproval?.notes || rec.hodApproval?.comment || 'Request was not approved')}"`;
+      }
+
+      return `
+        <div style="background:rgba(255,255,255,0.03);border-radius:16px;padding:24px;${borderStyle}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px;border-bottom:1px solid var(--glass-border);padding-bottom:14px">
+            <div>
+              <span style="font-size:11px;text-transform:uppercase;color:var(--text-muted);font-weight:700">Pass Reference ID:</span>
+              <div style="font-size:20px;font-family:monospace;font-weight:800;color:var(--accent-light);letter-spacing:1px">${escapeHtml(rec.id)}</div>
+            </div>
+            <div>${badgeHtml}</div>
+          </div>
+
+          <div style="background:rgba(255,255,255,0.02);padding:12px 16px;border-radius:8px;font-size:13px;color:var(--text-secondary);margin-bottom:16px;border-left:3px solid var(--accent-primary)">
+            ℹ️ ${statusDesc}
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;font-size:13px;margin-bottom:18px">
+            <div><span style="color:var(--text-muted)">Visitor Name:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.visitorName)}</strong></div>
+            <div><span style="color:var(--text-muted)">NIC / Passport:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.visitorNIC || '—')}</strong></div>
+            <div><span style="color:var(--text-muted)">Department:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.department)}</strong></div>
+            <div><span style="color:var(--text-muted)">Host Officer:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.hostName)}</strong></div>
+            <div><span style="color:var(--text-muted)">Scheduled Date:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.visitDate)} @ ${escapeHtml(rec.visitTime)}</strong></div>
+            <div><span style="color:var(--text-muted)">Submitted By:</span> <strong style="color:var(--text-primary)">${escapeHtml(rec.submittedByName || 'Requester')}</strong></div>
+          </div>
+
+          ${isApproved ? `
+            <div style="background:rgba(16,185,129,0.06);border:1px dashed rgba(16,185,129,0.3);border-radius:12px;padding:20px;text-align:center;margin-bottom:16px">
+              <div style="font-size:13px;font-weight:700;color:var(--success);margin-bottom:12px">📱 Official Digital QR Gate Pass:</div>
+              <div id="track-qr-${rec.id}" style="background:#fff;padding:12px;border-radius:12px;display:inline-block;margin:0 auto 12px;box-shadow:0 4px 16px rgba(0,0,0,0.3)"></div>
+              <p style="font-size:12px;color:var(--text-muted);max-width:360px;margin:0 auto">Present this QR pass to the Security Officer at the main entrance.</p>
+            </div>
+          ` : ''}
+
+          <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+            <a href="verify.html?scan=${encodeURIComponent(rec.id)}" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">
+              📄 Open Full Verification
+            </a>
+            ${isApproved ? `
+              <a href="verify.html?scan=${encodeURIComponent(rec.id)}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">
+                🖨️ Print Pass
+              </a>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    // Auto switch to track tab if #track or ?track=... is in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackParam = urlParams.get('track');
+    if (window.location.hash === '#track' || trackParam) {
+      switchPortalTab('track');
+      if (trackParam) {
+        const input = document.getElementById('track-search-input');
+        if (input) {
+          input.value = trackParam;
+          handleTrackPass();
+        }
+      }
     }
   </script>
 </body>
