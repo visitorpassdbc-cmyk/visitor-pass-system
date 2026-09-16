@@ -95,7 +95,8 @@
     let currentUser = VPS.requireAuth(['hod']);
     let currentFilter = 'pending_hod';
     let searchQuery = '';
-    let selectedDeptFilter = (currentUser.department && currentUser.department !== 'General') ? currentUser.department : 'All';
+    const isSuperUser = (currentUser.department === 'All' || !currentUser.department);
+    let selectedDeptFilter = isSuperUser ? 'All' : currentUser.department;
     VPS.renderSidebar('dashboard');
     renderPage();
 
@@ -109,8 +110,13 @@
       VPS.renderSidebar(currentFilter === 'pending_hod' ? 'pending' : currentFilter === 'approved' ? 'approved' : currentFilter === 'rejected' ? 'rejected' : 'dashboard');
       
       let records = VPS.filter({ search: searchQuery });
-      if (selectedDeptFilter && selectedDeptFilter !== 'All') {
-        records = records.filter(r => (r.department || '').trim().toLowerCase() === selectedDeptFilter.trim().toLowerCase());
+      
+      // Strict Division Scoping:
+      // An HOD of e.g. "Sirasa FM" or "IT Division" ONLY sees passes for their assigned division!
+      if (!isSuperUser) {
+        records = records.filter(r => VPS.isDeptMatch(r.department, currentUser.department));
+      } else if (selectedDeptFilter && selectedDeptFilter !== 'All') {
+        records = records.filter(r => VPS.isDeptMatch(r.department, selectedDeptFilter));
       }
       
       // Filter list based on active view state
@@ -130,10 +136,11 @@
       const pendingCount = records.filter(r => r.status === VPS.STATUS.PENDING_HOD).length;
       const approvedCount = records.filter(r => r.status === VPS.STATUS.PENDING_ADMIN || r.status === VPS.STATUS.APPROVED).length;
       const rejectedCount = records.filter(r => r.status === VPS.STATUS.REJECTED).length;
+      const deptDisplay = !isSuperUser ? `· Head of ${currentUser.department} (1st Level Approver)` : `· Head of Department (All Divisions)`;
       document.getElementById('page-content').innerHTML = `
         <div class="page-header fade-in">
           <h1>HOD Dashboard</h1>
-          <p>Welcome back, ${currentUser.name} · Head of Department (1st Level Approver)</p>
+          <p>Welcome back, ${currentUser.name} ${deptDisplay}</p>
         </div>
         <div class="stats-grid fade-in fade-in-delay-1">
           <div class="stat-card" style="cursor:pointer" onclick="changeFilter('pending_hod')">
@@ -161,6 +168,14 @@
               <input type="text" placeholder="Search by visitor name, NIC, host..." id="search-input"
                 oninput="searchQuery=this.value; renderPage()" value="${searchQuery}" />
             </div>
+            ${!isSuperUser ? `
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:var(--text-muted);font-weight:600">Your Division:</label>
+              <span class="badge" style="background:rgba(139,92,246,0.18);color:var(--accent-light);border:1px solid rgba(139,92,246,0.35);padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700">
+                🏢 ${currentUser.department}
+              </span>
+            </div>
+            ` : `
             <div style="display:flex;align-items:center;gap:8px">
               <label style="font-size:12px;color:var(--text-muted);font-weight:600">Division:</label>
               <select class="form-control" style="width:auto;min-width:180px" id="hod-dept-filter" onchange="selectedDeptFilter=this.value; renderPage()">
@@ -168,6 +183,7 @@
                 ${(VPS.DIVISIONS || []).map(d => `<option value="${d}" ${selectedDeptFilter === d ? 'selected' : ''}>${d}</option>`).join('')}
               </select>
             </div>
+            `}
           </div>
           <div class="table-wrapper">
             ${filtered.length === 0
@@ -270,9 +286,14 @@
 
     function openApproveModal(id) {
       const rec = VPS.getById(id);
+      if (!rec) return;
+      if (!isSuperUser && !VPS.isDeptMatch(rec.department, currentUser.department)) {
+        VPS.showNotification('You can only approve requests for your own division (' + currentUser.department + ')', 'error');
+        return;
+      }
       document.getElementById('approve-id').value = id;
       document.getElementById('approve-comment').value = '';
-      document.getElementById('approve-details').innerHTML = rec ? makeRequestSummaryHTML(rec) : '';
+      document.getElementById('approve-details').innerHTML = makeRequestSummaryHTML(rec);
       openModal('approve-modal');
     }
     function handleApproveSubmit(e) {
@@ -286,9 +307,14 @@
     }
     function openRejectModal(id) {
       const rec = VPS.getById(id);
+      if (!rec) return;
+      if (!isSuperUser && !VPS.isDeptMatch(rec.department, currentUser.department)) {
+        VPS.showNotification('You can only reject requests for your own division (' + currentUser.department + ')', 'error');
+        return;
+      }
       document.getElementById('reject-id').value = id;
       document.getElementById('reject-comment').value = '';
-      document.getElementById('reject-details').innerHTML = rec ? makeRequestSummaryHTML(rec) : '';
+      document.getElementById('reject-details').innerHTML = makeRequestSummaryHTML(rec);
       openModal('reject-modal');
     }
     function handleRejectSubmit(e) {

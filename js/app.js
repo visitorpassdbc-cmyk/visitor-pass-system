@@ -686,9 +686,24 @@ const VPS = (function () {
     };
     return map[status] || `<span class="badge">${status}</span>`;
   }
+  function isDeptMatch(d1, d2) {
+    if (!d1 || !d2) return false;
+    const s1 = String(d1).trim().toLowerCase();
+    const s2 = String(d2).trim().toLowerCase();
+    if (s1 === s2) return true;
+    if ((s1 === 'it' && s2 === 'it division') || (s1 === 'it division' && s2 === 'it')) return true;
+    if ((s1 === 'hr' && s2 === 'hr department') || (s1 === 'hr department' && s2 === 'hr')) return true;
+    return false;
+  }
   function getPendingCountForRole(role) {
     const records = getAll();
-    if (role === ROLES.HOD) return records.filter(r => r.status === STATUS.PENDING_HOD).length;
+    const user = getCurrentUser();
+    if (role === ROLES.HOD) {
+      if (user && user.department && user.department !== 'All') {
+        return records.filter(r => r.status === STATUS.PENDING_HOD && isDeptMatch(r.department, user.department)).length;
+      }
+      return records.filter(r => r.status === STATUS.PENDING_HOD).length;
+    }
     if (role === ROLES.ADMIN) return records.filter(r => r.status === STATUS.PENDING_ADMIN).length;
     return 0;
   }
@@ -1527,7 +1542,7 @@ Visitor Pass Management System`,
     init, login, loginWithCloud, logout, getCurrentUser, requireAuth,
     getAll, getById, filter, syncWithBackend,
     addRequest, deleteRequest, updateRequest, hodApprove, hodReject, adminApprove, adminReject, recordGateScan,
-    showNotification, formatDate, formatDateTime, statusBadge,
+    showNotification, formatDate, formatDateTime, statusBadge, isDeptMatch,
     getPendingCountForRole, exportToExcel, renderSidebar, generateQR,
     // User management
     getAllUsers, getUserById, addUser, updateUser, deleteUser,

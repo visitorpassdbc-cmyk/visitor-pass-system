@@ -1,5 +1,6 @@
 @echo off
 title Visitor Pass System - 24/7 Online Server
+cd /d "C:\.gemini\antigravity\scratch\visitor-pass-system"
 cls
 echo ====================================================================
 echo        VISITOR PASS MANAGEMENT SYSTEM - ONLINE SERVER
